@@ -426,7 +426,7 @@ class Relay:
         counters = {r["role"]: r["calls"] for r in self.db.execute("SELECT * FROM counters")}
         return {
             "scope": "paired relay lifetime",
-            "mcp_requests": counters,
+            "relay_requests": counters,
             "relay_model_calls": 0,
             "requester_model_tokens": None,
             "responder_model_tokens": None,

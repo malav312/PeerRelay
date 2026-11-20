@@ -1,0 +1,6 @@
+{
+  "name": "peerrelay",
+  "version": "0.1.0",
+  "description": "Peer-to-peer requester and response modes with approved writes",
+  "skills": "./skills/"
+}

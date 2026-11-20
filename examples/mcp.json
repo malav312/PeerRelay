@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "peerrelay": {
+      "command": "/absolute/path/PeerRelay/.venv/bin/peer-relay",
+      "args": ["mcp", "--config", "/absolute/path/to/role/client.json"]
+    }
+  }
+}
