@@ -28,3 +28,9 @@ decisions and limits. No second review or native-model acceptance is implied.
 Claude's installed plugin validator passed with optional missing-author/icon
 warnings. The suite emits one upstream Starlette/httpx deprecation warning.
 These do not affect the verified protocol and fixture-write results.
+
+Delivery verified at `/path/to/PeerRelay` with a fresh
+`uv sync --frozen` environment (Python 3.15.2): **33 passed**, Ruff lint/format
+clean, CLI help successful, Git whitespace/status clean. Staging also passed on
+Python 3.13.2. Upstream remained unchanged. Native client configurations have not
+been installed or enabled automatically.
