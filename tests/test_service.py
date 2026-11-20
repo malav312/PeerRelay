@@ -214,3 +214,36 @@ def test_path_escape_and_limits(relay):
             "remote_tool",
             {"lease_id": lease, "task_id": task, "kind": "create_file", "path": "bad"},
         )
+
+
+def test_review_pages_and_base_conflict(relay):
+    service, root, _ = relay
+    mode, lease, task = setup(service)
+    read = service.call(
+        "responder",
+        "remote_tool",
+        {"lease_id": lease, "task_id": task, "kind": "read", "path": "hello.txt"},
+    )
+    p = service.call(
+        "responder",
+        "propose",
+        {
+            "lease_id": lease,
+            "task_id": task,
+            "operation_id": "big",
+            "path": "hello.txt",
+            "content": "new\n" * 6000,
+            "base_version": read["version"],
+        },
+    )
+    first = service.call(
+        "requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"], "offset": 0}
+    )
+    assert first["truncated"] and first["next_offset"] == 16000
+    second = service.call(
+        "requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"], "offset": 16000}
+    )
+    assert second["diff"] and not second["truncated"]
+    (root / "hello.txt").write_text("edited locally")
+    with pytest.raises(Denied):
+        service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})

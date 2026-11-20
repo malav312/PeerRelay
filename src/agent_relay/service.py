@@ -345,9 +345,17 @@ class Relay:
         task = self.owned(mode_id, proposal["task"])
         return proposal, task, Tool.model_validate_json(proposal["tool"])
 
-    def _review(self, mode_id, proposal_id):
+    def _review(self, mode_id, proposal_id, offset=0):
         proposal, task, tool = self.proposal(mode_id, proposal_id)
-        base = "" if tool.expected_version == "absent" else self.fs.read(tool)["content"]
+        if type(offset) is not int or not 0 <= offset <= 2 * CONTENT_LIMIT:
+            raise Denied("Invalid diff offset")
+        if tool.expected_version == "absent":
+            base = ""
+        else:
+            current = self.fs.read(tool)
+            if current["version"] != tool.expected_version:
+                raise Denied("Proposal base changed; request a fresh proposal")
+            base = current["content"]
         diff = "".join(
             difflib.unified_diff(
                 base.splitlines(keepends=True),
@@ -361,8 +369,9 @@ class Relay:
             "path": tool.path,
             "digest": proposal["digest"],
             "base_version": tool.expected_version,
-            "diff": diff[:16000],
-            "truncated": len(diff) > 16000,
+            "diff": diff[offset : offset + 16000],
+            "truncated": len(diff) > offset + 16000,
+            "next_offset": offset + 16000 if len(diff) > offset + 16000 else None,
             "status": proposal["status"],
         }
 
