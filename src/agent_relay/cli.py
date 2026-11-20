@@ -17,7 +17,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
-    init.add_argument("--grant", choices=("ro", "rw"), default="ro")
+    init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
     init.add_argument("--project", required=True)
     init.add_argument("--pair-dir", required=True)
     init.add_argument(

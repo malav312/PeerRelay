@@ -10,3 +10,8 @@ Ruling: portable POSIX process groups provide best-effort stop, not OS containme
 escaped daemons and external side effects cannot be undone. Document this limit.
 Pre-flight: Task 2 consumes Task 1 role/task admission and command IDs; question
 pending gate will be added before spawn. MCP tools use the same argument names.
+Task 1: initial executor tests exposed missing exec grant/API (3 failures, 11 setup
+errors); 2 denial checks already passed. Real commands and full suite now 105 passed.
+Found macOS returns EPERM for a second signal to an exited process group; reproduced
+outside the test harness and fixed by checking leader exit before treating EPERM
+as termination failure. Live permission failures remain uncertain. Ruff clean.

@@ -23,7 +23,7 @@ def write_private(path, value):
 
 
 def initialize(root, directory, host, port, grant="ro"):
-    if grant not in ("ro", "rw"):
+    if grant not in ("ro", "rw", "exec"):
         raise ValueError("Invalid project grant")
     root = Path(root).resolve(strict=True)
     directory = Path(directory).absolute()

@@ -13,6 +13,8 @@ class LocalDecisions:
     def __init__(self, config, clock=time.time):
         self.clock = clock
         self.grant = config.get("grant", "rw")  # Preserve pre-grant paired configurations.
+        if self.grant == "exec":
+            self.grant = "rw"
         state = Path(config["state_dir"]).absolute()
         if state.resolve() != state:
             raise ValueError("State cannot use symlinks")

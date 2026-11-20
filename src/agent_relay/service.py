@@ -1,15 +1,18 @@
 """Durable one-project relay. Roles, chat modes and responder leases are distinct."""
 
 import fcntl
+import json
 import os
 import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from pydantic import ValidationError
 
+from .execution import ACTIVE, Executor, workspace
 from .filesystem import Filesystem
 from .schemas import CONTENT_LIMIT, Tool, payload_hash
 
@@ -45,13 +48,18 @@ RESPONDER = {
     "propose",
     "complete",
     "disconnect",
+    "execute",
+    "command_status",
+    "command_input",
+    "command_cancel",
 }
 
 
 class Relay:
     def __init__(self, root, state, clock=time.time, grant="rw"):
-        if grant not in ("ro", "rw"):
+        if grant not in ("ro", "rw", "exec"):
             raise ValueError("Invalid project grant")
+        self.root = Path(root).resolve(strict=True)
         self.grant = grant
         self.clock = clock
         self.lock = threading.RLock()
@@ -73,7 +81,8 @@ class Relay:
             os.close(self.owner_lock)
             raise
         self.fs = Filesystem(
-            {"project": {"path": str(root), "mode": grant}}, str(self.state / "files")
+            {"project": {"path": str(root), "mode": "rw" if grant == "exec" else grant}},
+            str(self.state / "files"),
         )
         path = self.state / "relay.sqlite"
         if path.is_symlink():
@@ -95,31 +104,52 @@ class Relay:
         CREATE TABLE IF NOT EXISTS proposals(
           id TEXT PRIMARY KEY,task TEXT,operation TEXT,hash TEXT,tool TEXT,digest TEXT,
           status TEXT DEFAULT 'proposed',UNIQUE(task,operation));
+        CREATE TABLE IF NOT EXISTS execution_modes(mode TEXT PRIMARY KEY,binding TEXT);
         CREATE TABLE IF NOT EXISTS counters(role TEXT PRIMARY KEY,calls INTEGER);
         """)
         # A server restart never resurrects an authority lease.
         self.db.execute("UPDATE lease SET active=0")
         self.db.execute("UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')")
         self.db.commit()
+        self.executor = Executor(self.state, self.execution_authority)
 
     def close(self):
         with self.lock:
-            if not self.closed:
-                self.db.close()
-                self.fs.close()
-                os.close(self.owner_lock)
-                self.closed = True
+            if self.closed:
+                return
+            self.closed = True
+        self.executor.close()
+        with self.lock:
+            self.db.close()
+            self.fs.close()
+            os.close(self.owner_lock)
+
+    def revoke_processes(self):
+        active = {
+            row[0]
+            for row in self.db.execute(
+                """SELECT t.id FROM tasks t JOIN modes m ON m.id=t.mode
+            JOIN lease l ON l.id=t.lease WHERE t.state='running' AND m.active=1
+            AND l.active=1 AND l.expires>?""",
+                (self.clock(),),
+            )
+        }
+        self.executor.cancel_inactive(active)
 
     def sweep(self):
         self.db.execute("UPDATE lease SET active=0 WHERE expires<=?", (self.clock(),))
         self.db.execute("""UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')
             AND lease NOT IN (SELECT id FROM lease WHERE active=1)""")
 
+        self.revoke_processes()
+
     def call(self, role, method, arguments):
         allowed = REQUESTER if role == "requester" else RESPONDER if role == "responder" else set()
         if method not in allowed or not isinstance(arguments, dict):
             raise Denied("Role does not allow this operation")
         with self.lock:
+            if self.closed:
+                raise Denied("Relay closed")
             self.sweep()
             self.db.commit()
             try:
@@ -131,6 +161,7 @@ class Relay:
                     (role,),
                 )
                 self.db.commit()
+                self.revoke_processes()
                 return result
             except (TypeError, KeyError, ValidationError) as error:
                 self.db.rollback()
@@ -170,10 +201,23 @@ class Relay:
         self.mode(row["mode"])
         return row
 
-    def _requester_mode(self):
+    def _requester_mode(self, execution=False):
+        if type(execution) is not bool or (execution and self.grant != "exec"):
+            raise Denied("Execution requires an explicit trusted-host exec pair")
         mode = new_id()
         self.db.execute("INSERT INTO modes VALUES (?,1)", (mode,))
-        return {"mode_id": mode, "routing": "remote_only", "requester_model_tokens": None}
+        if execution:
+            self.db.execute(
+                "INSERT INTO execution_modes VALUES (?,?)", (mode, json.dumps(workspace(self.root)))
+            )
+        return {
+            "mode_id": mode,
+            "routing": "remote_only",
+            "requester_model_tokens": None,
+            "execution": execution,
+            "workspace": str(self.root),
+            "permission": "trusted_host" if execution else "proposals_only",
+        }
 
     def _response_mode(self):
         if self.db.execute("SELECT 1 FROM lease WHERE active=1").fetchone():
@@ -244,7 +288,12 @@ class Relay:
                 for r in reversed(context)
             ],
             "root": "project",
-            "writes": "proposals_only",
+            "writes": "commands"
+            if self.db.execute(
+                "SELECT 1 FROM execution_modes WHERE mode=?", (row["mode"],)
+            ).fetchone()
+            else "proposals_only",
+            "workspace": str(self.root),
         }
 
     def count_tool(self, task):
@@ -262,7 +311,7 @@ class Relay:
 
     def _propose(self, lease_id, task_id, operation_id, path, content, base_version):
         task = self.working(lease_id, task_id)
-        if self.grant != "rw" or base_version == "absent":
+        if self.grant not in ("rw", "exec") or base_version == "absent":
             raise Denied("Replacement proposals require an existing file and explicit rw grant")
         bounded(operation_id, 100)
         bounded(content, CONTENT_LIMIT, empty=True)
@@ -288,7 +337,7 @@ class Relay:
             raise Denied("Proposal limit")
         self.count_tool(task)
         proposal = new_id()
-        receipt = self.fs.execute(proposal, tool.model_dump(), {"project": self.grant})
+        receipt = self.fs.execute(proposal, tool.model_dump(), {"project": "rw"})
         if receipt["status"] != "proposed":
             raise Denied("Proposal could not be captured; read the target again")
         with self.fs.journal.connect() as journal:
@@ -303,6 +352,8 @@ class Relay:
 
     def _complete(self, lease_id, task_id, summary, answer=""):
         self.working(lease_id, task_id)
+        if any(job["state"] in ACTIVE for job in self.executor.summaries(task_id)):
+            raise Denied("Finish or cancel active commands before completing")
         bounded(summary, 2000)
         bounded(answer, 32768, empty=True)
         self.db.execute(
@@ -321,6 +372,7 @@ class Relay:
             "state": task["state"],
             "summary": task["summary"],
             "proposals": [dict(p) for p in proposals],
+            "commands": self.executor.summaries(task_id),
             "responder_connected": bool(
                 self.db.execute(
                     "SELECT 1 FROM lease WHERE id=? AND active=1", (task["lease"],)
@@ -373,3 +425,69 @@ class Relay:
             "responder_model_tokens": None,
             "note": "Native client model usage is not visible to this MCP service.",
         }
+
+    @contextmanager
+    def execution_authority(self, lease_id, task_id):
+        with self.lock:
+            if self.closed:
+                raise Denied("Relay closed")
+            task = self.working(lease_id, task_id)
+            row = self.db.execute(
+                "SELECT binding FROM execution_modes WHERE mode=?", (task["mode"],)
+            ).fetchone()
+            if self.grant != "exec" or not row or json.loads(row[0]) != workspace(self.root):
+                raise Denied(
+                    "Execution not authorized or workspace/branch changed; activate a new mode"
+                )
+            yield task
+
+    def _execute(
+        self, lease_id, task_id, operation_id, command, cwd=".", timeout=300, terminal=False
+    ):
+        bounded(operation_id, 100)
+        bounded(command, 65536)
+        bounded(cwd, 4096)
+        if type(timeout) is not int or not 1 <= timeout <= 86400 or type(terminal) is not bool:
+            raise Denied("Invalid command options")
+        with self.execution_authority(lease_id, task_id) as task:
+            directory = (self.root / cwd).resolve(strict=True)
+            if not directory.is_dir() or (
+                directory != self.root and self.root not in directory.parents
+            ):
+                raise Denied("Command cwd must be inside the registered workspace")
+            self.count_tool(task)
+            try:
+                return self.executor.submit(
+                    task_id,
+                    lease_id,
+                    operation_id,
+                    dict(command=command, cwd=str(directory), timeout=timeout, terminal=terminal),
+                )
+            except ValueError as error:
+                raise Denied(str(error)) from error
+
+    def command_owned(self, lease_id, task_id, command_id):
+        self.working(lease_id, task_id)
+        row = self.executor.record(command_id)
+        if row["task"] != task_id or row["lease"] != lease_id:
+            raise Denied("Command belongs to another task")
+
+    def _command_status(self, lease_id, task_id, command_id, offset=0):
+        self.command_owned(lease_id, task_id, command_id)
+        return self.executor.status(command_id, offset)
+
+    def _command_input(self, lease_id, task_id, command_id, operation_id, data, eof=False):
+        bounded(operation_id, 100)
+        bounded(data, 16384, empty=True)
+        if len(data.encode()) > 16384 or type(eof) is not bool:
+            raise Denied("Invalid command input")
+        with self.execution_authority(lease_id, task_id):
+            self.command_owned(lease_id, task_id, command_id)
+            try:
+                return self.executor.input(command_id, operation_id, data, eof)
+            except ValueError as error:
+                raise Denied(str(error)) from error
+
+    def _command_cancel(self, lease_id, task_id, command_id):
+        self.command_owned(lease_id, task_id, command_id)
+        return self.executor.cancel(command_id)
