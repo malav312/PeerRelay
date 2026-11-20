@@ -347,7 +347,7 @@ class Relay:
 
     def _review(self, mode_id, proposal_id, offset=0):
         proposal, task, tool = self.proposal(mode_id, proposal_id)
-        if type(offset) is not int or not 0 <= offset <= 2 * CONTENT_LIMIT:
+        if type(offset) is not int or offset < 0:
             raise Denied("Invalid diff offset")
         if tool.expected_version == "absent":
             base = ""
@@ -357,13 +357,16 @@ class Relay:
                 raise Denied("Proposal base changed; request a fresh proposal")
             base = current["content"]
         diff = "".join(
-            difflib.unified_diff(
+            line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+            for line in difflib.unified_diff(
                 base.splitlines(keepends=True),
                 tool.content.splitlines(keepends=True),
                 fromfile=tool.path,
                 tofile=tool.path,
             )
         )
+        if offset > len(diff):
+            raise Denied("Invalid diff offset")
         return {
             "proposal_id": proposal_id,
             "path": tool.path,

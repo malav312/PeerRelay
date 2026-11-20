@@ -1,5 +1,6 @@
 """Pinned HTTPS transport. It never imports or invokes a model/provider SDK."""
 
+import asyncio
 import json
 import os
 import ssl
@@ -107,16 +108,17 @@ class Client:
                 except (Unavailable, OSError):
                     self.lease = None
 
-    def wait_for_task(self, lease_id, seconds=25):
+    async def wait_for_task(self, lease_id, seconds=25):
         if not 0 <= seconds <= 50:
             raise ValueError("Wait must be between 0 and 50 seconds")
         deadline = time.monotonic() + seconds
         while True:
-            result = self.call("claim", {"lease_id": lease_id})
+            if self.stop.is_set():
+                raise Unavailable("Responder stopped")
+            result = await asyncio.to_thread(self.call, "claim", {"lease_id": lease_id})
             if result["state"] != "idle" or time.monotonic() >= deadline:
                 return result
-            if self.stop.wait(min(0.5, max(0, deadline - time.monotonic()))):
-                raise Unavailable("Responder stopped")
+            await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
 
     def close(self):
         self.stop.set()

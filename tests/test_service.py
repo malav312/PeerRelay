@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from agent_relay.schemas import CONTENT_LIMIT
 from agent_relay.service import Denied, Relay
 
 
@@ -247,3 +248,40 @@ def test_review_pages_and_base_conflict(relay):
     (root / "hello.txt").write_text("edited locally")
     with pytest.raises(Denied):
         service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})
+
+
+def test_review_marks_missing_final_newlines(relay):
+    service, _, _ = relay
+    mode, lease, task = setup(service)
+    p = propose(service, lease, task)
+    review = service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})
+    assert "-before\n\\ No newline at end of file\n" in review["diff"]
+    assert "+after\n\\ No newline at end of file\n" in review["diff"]
+
+
+def test_review_accepts_its_advertised_large_diff_offset(relay):
+    service, root, _ = relay
+    mode, lease, task = setup(service)
+    (root / "hello.txt").write_text("a\n" * (CONTENT_LIMIT // 2))
+    read = service.call(
+        "responder",
+        "remote_tool",
+        {"lease_id": lease, "task_id": task, "kind": "read", "path": "hello.txt"},
+    )
+    p = service.call(
+        "responder",
+        "propose",
+        {
+            "lease_id": lease,
+            "task_id": task,
+            "operation_id": "max-diff",
+            "path": "hello.txt",
+            "content": "b\n" * (CONTENT_LIMIT // 2),
+            "base_version": read["version"],
+        },
+    )
+    args = {"mode_id": mode, "proposal_id": p["proposal_id"]}
+    page = service.call("requester", "review", dict(args, offset=1040000))
+    assert page["next_offset"] > 2 * CONTENT_LIMIT
+    following = service.call("requester", "review", dict(args, offset=page["next_offset"]))
+    assert following["diff"]

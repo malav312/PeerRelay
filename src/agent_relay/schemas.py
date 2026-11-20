@@ -29,6 +29,8 @@ class Tool(Strict):
             raise ValueError("Unexpected write fields")
         if self.content is not None and len(self.content.encode()) > CONTENT_LIMIT:
             raise ValueError("Content too large")
+        if self.content is not None and "\x00" in self.content:
+            raise ValueError("NUL-containing content is not supported text")
         if self.kind == "create_file" and self.expected_version != "absent":
             raise ValueError("Create requires absent version")
         if (self.kind == "search") != (self.query is not None):

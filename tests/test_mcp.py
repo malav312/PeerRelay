@@ -4,6 +4,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 
 import httpx
@@ -181,5 +182,59 @@ def test_sdk_stdio_approved_write_then_responder_disconnect(live_pair):
                 assert status["responder_connected"] is False
                 assert status["state"] == "succeeded"
             decode(await a.call_tool("exit_requester_mode", {"mode_id": mode}))
+
+    asyncio.run(run())
+
+
+def test_sdk_disconnect_interrupts_idle_wait(live_pair):
+    pair, _, _ = live_pair
+
+    async def run():
+        params = StdioServerParameters(
+            command=sys.executable,
+            args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / "responder/client.json")],
+        )
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as b:
+            await b.initialize()
+            lease = decode(await b.call_tool("response_mode", {}))["lease_id"]
+            waiting = asyncio.create_task(
+                b.call_tool("wait_for_task", {"lease_id": lease, "seconds": 2})
+            )
+            try:
+                await asyncio.sleep(0.1)
+                start = time.monotonic()
+                disconnected = decode(await b.call_tool("disconnect", {"lease_id": lease}))
+                assert disconnected["state"] == "disconnected"
+                assert time.monotonic() - start < 1
+                assert (await asyncio.wait_for(waiting, 1)).isError
+            finally:
+                if not waiting.done():
+                    waiting.cancel()
+                await asyncio.gather(waiting, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+def test_cancelled_wait_stops_polling():
+    client = Client.__new__(Client)
+    client.stop = threading.Event()
+    calls = []
+
+    def idle(method, arguments):
+        calls.append(method)
+        return {"state": "idle"}
+
+    client.call = idle
+
+    async def run():
+        waiting = asyncio.create_task(client.wait_for_task("lease", seconds=1))
+        await asyncio.sleep(0.1)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        count = len(calls)
+        assert count == 1
+        await asyncio.sleep(0.6)
+        assert len(calls) == count
 
     asyncio.run(run())

@@ -136,7 +136,7 @@ inspectable. Keep the durable journals for replay protection.
 ## Scope and limits
 
 One paired responder and one project; 32 pending tasks, 128 remote tool calls per
-task, 32 proposals per task, 512 KiB UTF-8 files, and 32,768-character full answers.
+task, 32 proposals per task, 512 KiB NUL-free UTF-8 files, and 32,768-character full answers.
 Each file is applied independently. No shell/tests, deletion, renaming, binary
 editing, automatic dependency installation, or multi-file atomic transaction.
 Symlinks, hardlinks, path escapes, and mount crossings are refused. The project

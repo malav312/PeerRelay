@@ -1,6 +1,6 @@
 # PeerRelay Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship a standalone MCP requester/responder pair with durable, explicitly approved writes.
 
@@ -27,26 +27,26 @@
 ### Task 1: Approved filesystem writes
 Files: src/agent_relay/{filesystem,journal,schemas}.py; tests/test_writes.py.
 Interface: Filesystem.apply(operation_id, tool, grants) -> receipt, preserving upstream version semantics.
-- [ ] Write tests for unchanged-before-approval, apply/replay, conflict, create, escape and uncertain replay; observe RED.
-- [ ] Adopt attributed traversal/journal code and implement locked version-checked create/replace.
-- [ ] Run write tests GREEN, lint, commit.
+- [x] Write tests for unchanged-before-approval, apply/replay, conflict, create, escape and uncertain replay; observe RED.
+- [x] Adopt attributed traversal/journal code and implement locked version-checked create/replace.
+- [x] Run write tests GREEN, lint, commit.
 
 ### Task 2: Durable relay and lease boundaries
 Files: src/agent_relay/service.py; tests/test_service.py.
 Interface: Relay.call(role, method, arguments) -> bounded JSON dict; lifecycle sweep() and close().
-- [ ] Test requester modes, idempotent submit, B lease/claim/tools, completion, compact results and approval; observe RED.
-- [ ] Implement SQLite state, strict schemas, scoped task access and deterministic disconnect handling.
-- [ ] Test expired leases, wrong roles/chats, duplicate payload changes, revoked proposals, restart and limits; run suite GREEN, commit.
+- [x] Test requester modes, idempotent submit, B lease/claim/tools, completion, compact results and approval; observe RED.
+- [x] Implement SQLite state, strict schemas, scoped task access and deterministic disconnect handling.
+- [x] Test expired leases, wrong roles/chats, duplicate payload changes, revoked proposals, restart and limits; run suite GREEN, commit.
 
 ### Task 3: HTTPS and stdio MCP integration
 Files: src/agent_relay/{api,client,mcp_server,cli}.py; tests/test_transport.py; tests/test_mcp.py; pyproject.toml.
-Interface: agent-relay init/serve/mcp; role-specific tools map to Relay.call. Configuration owns secret file paths, never provider tokens.
-- [ ] Write HTTP auth, TLS rejection and SDK stdio end-to-end write tests; observe RED.
-- [ ] Implement pinned HTTPS client, private setup files, bounded API, heartbeat, SDK MCP tools, explicit prompt templates.
-- [ ] Verify disconnect and no model imports/calls in transport; run full suite GREEN, commit.
+Interface: peer-relay init/serve/mcp; role-specific tools map to Relay.call. Configuration owns secret file paths, never provider tokens.
+- [x] Write HTTP auth, TLS rejection and SDK stdio end-to-end write tests; observe RED.
+- [x] Implement pinned HTTPS client, private setup files, bounded API, heartbeat, SDK MCP tools, explicit prompt templates.
+- [x] Verify disconnect and no model imports/calls in transport; run full suite GREEN, commit.
 
 ### Task 4: Client packages and handoff
 Files: plugins/{codex,claude}/; README.md; docs/verification.md.
-- [ ] Create requester/response skills with persistent mode IDs, concise outputs, no local fallback and explicit approval instructions.
-- [ ] Validate package manifests, skill paths and installed SDK transport; run full suite and independent review.
-- [ ] Fix material review findings with RED/GREEN; deliver separate Git repository and fixture write evidence.
+- [x] Create requester/response skills with persistent mode IDs, concise outputs, no local fallback and explicit approval instructions.
+- [x] Validate package manifests, skill paths and installed SDK transport; run full suite and independent review.
+- [x] Fix material review findings with RED/GREEN; deliver separate Git repository and fixture write evidence.

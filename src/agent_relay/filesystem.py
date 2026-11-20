@@ -129,6 +129,8 @@ class Filesystem:
                 after = os.fstat(fd)
                 if len(data) > CONTENT_LIMIT or version(before, data) != version(after, data):
                     raise Changed()
+                if b"\x00" in data:
+                    raise Refused()
                 return {
                     "status": "succeeded",
                     "content": data.decode("utf-8"),

@@ -1,4 +1,5 @@
 import json
+import shutil
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,3 +62,20 @@ def test_unsafe_setup_and_client_config_rejected(tmp_path):
     (directory / "requester/client.json").chmod(0o644)
     with pytest.raises(ValueError):
         load(directory / "requester/client.json")
+
+
+@pytest.mark.parametrize("field", ["requester", "responder", "key_file", "_path"])
+def test_server_rejects_private_files_inside_project(tmp_path, field):
+    root = tmp_path / "project"
+    root.mkdir()
+    directory = tmp_path / "pair"
+    initialize(root, directory, "127.0.0.1", 9443)
+    config = load(directory / "server.json")
+    mapping = config["tokens"] if field in ("requester", "responder") else config
+    exposed = root / "private-file"
+    shutil.copyfile(mapping[field], exposed)
+    exposed.chmod(0o600)
+    mapping[field] = str(exposed)
+    with pytest.raises(ValueError, match="overlap"):
+        with TestClient(create_app(config), base_url="https://localhost"):
+            pass

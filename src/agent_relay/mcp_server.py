@@ -1,5 +1,9 @@
 """Two deliberately separate MCP tool sets, suitable for either native client."""
 
+import asyncio
+import inspect
+from functools import wraps
+
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
@@ -40,12 +44,23 @@ def build_server(client):
     server = FastMCP("PeerRelay " + client.role, instructions=instructions, log_level="ERROR")
 
     def tool(readonly=False, destructive=False):
-        return server.tool(
-            structured_output=False,
-            annotations=ToolAnnotations(
-                readOnlyHint=readonly, destructiveHint=destructive, openWorldHint=True
-            ),
-        )
+        def register(function):
+            @wraps(function)
+            async def asynchronous(*args, **kwargs):
+                # FastMCP invokes synchronous functions on its event loop. Keep
+                # HTTP and idle waits off it so disconnect/cancellation can run.
+                if inspect.iscoroutinefunction(function):
+                    return await function(*args, **kwargs)
+                return await asyncio.to_thread(function, *args, **kwargs)
+
+            return server.tool(
+                structured_output=False,
+                annotations=ToolAnnotations(
+                    readOnlyHint=readonly, destructiveHint=destructive, openWorldHint=True
+                ),
+            )(asynchronous)
+
+        return register
 
     if client.role == "requester":
 
@@ -124,9 +139,9 @@ def build_server(client):
             return client.call("response_mode", {})
 
         @tool()
-        def wait_for_task(lease_id: str, seconds: int = 25) -> dict:
+        async def wait_for_task(lease_id: str, seconds: int = 25) -> dict:
             """Wait deterministically for work, 0-50 seconds. No relay model calls during wait."""
-            return client.wait_for_task(lease_id, seconds)
+            return await client.wait_for_task(lease_id, seconds)
 
         @tool(readonly=True)
         def remote_read(lease_id: str, task_id: str, path: str) -> dict:

@@ -15,4 +15,16 @@ confirm persistent routing across turns, owner interruption, approval UX and act
 requester/worker token totals. Both Codex and Claude use the standard MCP package,
 but no claim of full native-client acceptance is made before these tests.
 
-Final suite and independent review results will be recorded after review fixes.
+Final staging suite: **33 passed**. Ruff lint, formatting and whitespace checks pass.
+The extra regressions cover configured credential/configuration overlap with the
+project, NUL-containing reads/proposals, complete large-diff pagination, explicit
+missing-newline markers, concurrent MCP wait/disconnect, and cancelled waits.
+Every review regression was observed failing before its correction.
+
+Fresh whole-branch review found four Important issues and no Critical or Minor
+issues. All four were corrected in one fix pass. See progress.md for findings,
+decisions and limits. No second review or native-model acceptance is implied.
+
+Claude's installed plugin validator passed with optional missing-author/icon
+warnings. The suite emits one upstream Starlette/httpx deprecation warning.
+These do not affect the verified protocol and fixture-write results.

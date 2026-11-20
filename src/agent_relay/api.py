@@ -1,6 +1,7 @@
 import hmac
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from threading import Event, Thread
 
 from fastapi import FastAPI, Request
@@ -46,6 +47,13 @@ class Boundary:
 
 
 def create_app(config):
+    root = Path(config["root"]).resolve(strict=True)
+    protected = list(config["tokens"].values())
+    protected.extend(config[key] for key in ("_path", "key_file", "ca_file") if key in config)
+    for path in protected:
+        path = Path(path).resolve(strict=True)
+        if path == root or root in path.parents:
+            raise ValueError("Private configuration/credentials overlap the project")
     tokens = {
         role: private_file(path).read_text().strip() for role, path in config["tokens"].items()
     }
