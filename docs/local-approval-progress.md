@@ -15,4 +15,14 @@ Task 2: local adapter RED 12 failures/7 passes; remote review route and MCP expo
 failed before removal. Added explicit grants and local CLI without altering paired state.
 Task 3: actual TLS/MCP propose to local CLI apply passes; skills/docs updated; old approval
 simulation evidence marked historical. Full suite 87 passed; lint/format/diff clean.
-Final independent review pending. No deployment or live acceptance claimed.
+Final independent review: two Important findings, no Critical or Minor findings.
+1. Lease could expire between preliminary inspection and decision guard acquisition.
+   Fixed by an optional authorization callback inside the guarded core decision,
+   before durable approval intent, while preserving relay transaction -> filesystem
+   guard order. Terminal replay/rejection remain available without a live lease.
+2. Relay proposals.tool duplicated exact replacement content past journal purge.
+   New rows store {}; canonical journal owns captured bytes. Preserve legacy rows.
+Both new regressions failed before correction and then passed. Full suite: 89 passed.
+No deferred review findings or second review. Reviewer declined native-agent compliance,
+token savings, physical secure erasure and live two-client acceptance; these remain
+outside fixture verification. No deployment or live acceptance claimed.

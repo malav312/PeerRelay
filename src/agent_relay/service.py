@@ -1,7 +1,6 @@
 """Durable one-project relay. Roles, chat modes and responder leases are distinct."""
 
 import fcntl
-import json
 import os
 import sqlite3
 import threading
@@ -298,7 +297,7 @@ class Relay:
             ).fetchone()[0]
         self.db.execute(
             "INSERT INTO proposals(id,task,operation,hash,tool,digest) VALUES (?,?,?,?,?,?)",
-            (proposal, task_id, operation_id, fingerprint, json.dumps(tool.model_dump()), digest),
+            (proposal, task_id, operation_id, fingerprint, "{}", digest),
         )
         return {"proposal_id": proposal, "status": "proposed"}
 

@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -80,6 +81,58 @@ def test_local_apply_preserves_remote_receipt_and_compact_status(paired):
     assert "digest" not in p
     assert "diff" not in json.dumps(status)
     assert relay.call("responder", "propose", args) == p
+
+
+def test_lease_expiring_while_decision_waits_for_guard_blocks_application(paired, monkeypatch):
+    _, config, root, _, _, _, proposal, _, clock = paired
+    ident = proposal["proposal_id"]
+    with local(config, clock=lambda: clock[0]) as decisions:
+        digest = decisions.inspect(ident)["digest"]
+        original_guard = decisions.fs.execution_guard
+        original_decide = decisions.core.decide
+        deciding = False
+
+        @contextmanager
+        def delayed_guard():
+            with original_guard():
+                if deciding:
+                    # Deterministic elapsed lock-wait time, before the guarded decision.
+                    clock[0] += 61
+                yield
+
+        def begin_decision(*args, **kwargs):
+            nonlocal deciding
+            deciding = True
+            return original_decide(*args, **kwargs)
+
+        monkeypatch.setattr(decisions.fs, "execution_guard", delayed_guard)
+        monkeypatch.setattr(decisions.core, "decide", begin_decision)
+        with pytest.raises(ValueError, match="authority revoked"):
+            decisions.decide(ident, digest, "approve")
+        assert decisions.inspect(ident)["status"] == "pending"
+        assert (root / "hello.txt").read_bytes() == b"before\r\n"
+
+
+def test_purge_does_not_leave_replacement_content_in_relay_store(paired):
+    relay, config, root, _, _, _, proposal, _, _ = paired
+    ident = proposal["proposal_id"]
+    relay.fs.purge([ident])
+    with local(config) as decisions:
+        view = decisions.inspect(ident)
+        assert view["status"] == "rejected"
+        assert view["detail"]["purged"] is True
+        assert decisions.decide(ident, view["digest"], "approve") == view
+    with relay.fs.journal.connect() as journal:
+        binding, base = journal.execute(
+            "SELECT binding,base_content FROM local_proposals WHERE id=?", (ident,)
+        ).fetchone()
+        assert json.loads(binding) == {}
+        assert base is None
+        assert "after" not in json.dumps(relay.fs.journal.lookup(ident))
+    stored = relay.db.execute("SELECT tool,hash FROM proposals WHERE id=?", (ident,)).fetchone()
+    assert json.loads(stored["tool"]) == {}
+    assert stored["hash"]
+    assert (root / "hello.txt").read_bytes() == b"before\r\n"
 
 
 @pytest.mark.parametrize("method", ["apply", "review", "approve", "reject"])

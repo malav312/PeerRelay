@@ -39,6 +39,8 @@ task and live B lease. Disconnect, cancel, mode exit, expiry and relay restart
 block pending application. A decision already executing may finish before a
 concurrent disconnect is acknowledged. A shared relay transaction establishes
 that ordering; the filesystem guard serializes capture/application/purge.
+Live authority is checked after the decision acquires that guard, before recording
+approval intent, so expiry during a lock wait also blocks pending application.
 
 Inspection/rejection are available without a network connection and when the root
 is unavailable. Application needs valid local authority records and root identity.
@@ -62,8 +64,10 @@ that its proposed edits were applied.
 Preserve uncertain records, the target and named staging artifacts for human
 reconciliation. Matching bytes do not establish success. There is no force/retry,
 automatic rollback or SQL-edit recovery procedure. Retention helpers scrub captured
-content under the shared lock and keep terminal/hash tombstones; no automatic
-retention scheduler is added by this change.
+content under the shared lock and keep terminal/hash tombstones. New relay records
+keep proposal hashes and identifiers without duplicating replacement content;
+legacy relay rows remain preserved. No automatic retention scheduler is added by
+this change. Logical scrubbing does not guarantee physical secure erasure.
 
 ## Upgrading an existing pair
 

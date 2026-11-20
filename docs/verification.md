@@ -1,8 +1,13 @@
 # Local-human approval verification — November 19, 2026
 
-Current adaptation suite: **87 passed** in the isolated standalone checkout.
+Current adaptation suite: **89 passed** in the isolated standalone checkout.
 Ruff lint/format and Git whitespace checks pass. One upstream Starlette/httpx
-test-client deprecation warning remains. Independent review is pending.
+test-client deprecation warning remains. Independent review found two Important
+issues and no Critical or Minor issues. Both were fixed in one pass, with each
+regression observed failing before the fix: lease expiry while waiting for the
+decision lock now prevents application; new relay records no longer duplicate
+captured proposal content that would survive journal purge. Legacy rows are preserved.
+No second review is implied.
 
 This includes 32 ported approval/integration tests from upstream 6234675, covering
 exact bytes, permission bits, tampering, stale targets, additive journals,

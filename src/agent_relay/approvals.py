@@ -183,7 +183,7 @@ class Approvals:
             self.journal.proposal(ident, binding, base, result)
         return self.inspect(ident)
 
-    def decide(self, ident, digest, decision):
+    def decide(self, ident, digest, decision, *, authorize=None):
         if decision not in ("approve", "reject"):
             raise ValueError("Decision must be approve or reject")
         with self.fs.execution_guard():
@@ -196,6 +196,10 @@ class Approvals:
             if decision == "reject":
                 self._transition(row, "rejected", {"reason": "Explicit local rejection"})
                 return self._result(row)
+            # Standalone relay policy must run after lock acquisition, before intent.
+            # Terminal replay and rejection do not require live application authority.
+            if authorize is not None:
+                authorize()
             self._transition(
                 row, "approved", {"reason": "Explicit local approval", "digest": digest}
             )

@@ -56,27 +56,29 @@ class LocalDecisions:
         self._registered(ident)
         return self.core.inspect(ident)
 
+    def _authorize(self, task):
+        live = self.db.execute(
+            """SELECT t.state,m.active AS mode_active,
+            l.active AS lease_active,l.expires FROM tasks t
+            JOIN modes m ON m.id=t.mode JOIN lease l ON l.id=t.lease WHERE t.id=?""",
+            (task,),
+        ).fetchone()
+        if (
+            self.grant != "rw"
+            or not live
+            or not live["mode_active"]
+            or not live["lease_active"]
+            or live["expires"] <= self.clock()
+            or live["state"] not in ("running", "succeeded")
+        ):
+            raise ValueError("Application authority revoked; no application performed")
+
     def decide(self, ident, digest, decision):
         # Same order as Relay.call: relay transaction -> filesystem execution lock.
         # Disconnect/cancel cannot acknowledge until an already-started apply finishes.
         with self.db:
             self.db.execute("BEGIN IMMEDIATE")
             task = self._registered(ident)
-            view = self.core.inspect(ident)
-            if decision == "approve" and view["status"] == "pending":
-                live = self.db.execute(
-                    """SELECT t.state,m.active AS mode_active,
-                    l.active AS lease_active,l.expires FROM tasks t
-                    JOIN modes m ON m.id=t.mode JOIN lease l ON l.id=t.lease WHERE t.id=?""",
-                    (task,),
-                ).fetchone()
-                if (
-                    self.grant != "rw"
-                    or not live
-                    or not live["mode_active"]
-                    or not live["lease_active"]
-                    or live["expires"] <= self.clock()
-                    or live["state"] not in ("running", "succeeded")
-                ):
-                    raise ValueError("Application authority revoked; no application performed")
-            return self.core.decide(ident, digest, decision)
+            return self.core.decide(
+                ident, digest, decision, authorize=lambda: self._authorize(task)
+            )

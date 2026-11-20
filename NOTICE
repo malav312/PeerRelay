@@ -2,4 +2,5 @@ Filesystem traversal and journal adapted from Mosaic (MIT), commit fba95a4.
 
 Local approval, journal and filesystem foundations and regression tests adapted
 from Mosaic commit 6234675 (MIT). Standalone imports, relay lease/grant adapter
-and local CLI integration are maintained by PeerRelay.
+and local CLI integration are maintained by PeerRelay. The approval decision also
+supports a guarded authorization callback for standalone live-lease policy.
