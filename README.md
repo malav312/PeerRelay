@@ -10,6 +10,8 @@ proposed file creation/replacement, and A-approved application. The write path h
 been exercised through two real stdio MCP processes and HTTPS. Native Codex/Claude
 mode persistence and actual requester token savings still need live acceptance.
 
+For step-by-step installation, follow the [two-laptop setup guide](docs/setup.md).
+
 ## What each side does
 
 - A enables requester mode once per chat. New tasks and follow-ups are forwarded
