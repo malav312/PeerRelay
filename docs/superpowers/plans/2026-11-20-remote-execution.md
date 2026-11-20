@@ -49,4 +49,4 @@ Files: README/setup/execution guide, role skill copies, verification/progress.
 - [x] Update setup and modes for exec, session authorization, commands/questions,
   trusted-host limits, branch behavior and client fallback.
 - [x] Full suite and fresh independent whole-branch review; one regression-first fix pass.
-- [ ] Commit, integrate in standalone checkout, verify private remote and push.
+- [x] Commit, integrate in standalone checkout, verify private remote and push.

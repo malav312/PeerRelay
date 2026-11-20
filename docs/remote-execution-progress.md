@@ -49,3 +49,9 @@ the trusted-host contract. Live pairing/provider rollout remains a separate user
 operation. Existing configs, skills installed in native clients and services untouched.
 Integration ruling: existing user instructions authorize commits and private push;
 fast-forward the known codex/requester-response base without a redundant menu.
+
+Integrated d858337 into the clean standalone codex/requester-response checkout by
+fast-forward. Fresh integrated verification: 128 passed, one upstream warning;
+Ruff lint/format and Git whitespace checks pass. GitHub destination verified PRIVATE.
+This documentation commit is the final private delivery; live acceptance remains
+explicitly unmeasured. Temporary isolated clone retained as verification evidence.

@@ -1,6 +1,7 @@
 # Remote execution verification — November 20, 2026
 
-Current suite: **128 passed** in the isolated execution checkout. Ruff lint,
+Current suite: **128 passed** in both the isolated execution checkout and
+`/path/to/PeerRelay` after fast-forward integration. Ruff lint,
 formatting and Git whitespace checks pass; 10 setup shell examples parse and local
 links resolve. One upstream Starlette/httpx test-client deprecation warning remains.
 Independent whole-branch review completed at e71a367: three Important findings
