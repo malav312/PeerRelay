@@ -36,7 +36,7 @@ def test_role_specific_mcp_tool_sets(tmp_path):
 
 
 @pytest.fixture
-def live_pair(tmp_path):
+def live_pair(tmp_path, request):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -44,7 +44,7 @@ def live_pair(tmp_path):
     root.mkdir()
     (root / "hello.txt").write_text("before\n")
     pair = tmp_path / "pair"
-    initialize(root, pair, "127.0.0.1", port, grant="rw")
+    initialize(root, pair, "127.0.0.1", port, grant=getattr(request, "param", "rw"))
     process = subprocess.Popen(
         [sys.executable, "-m", "agent_relay.cli", "serve", "--config", str(pair / "server.json")],
         stdout=subprocess.DEVNULL,

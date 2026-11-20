@@ -1,5 +1,8 @@
 # Human-local inspection and decisions
 
+This guide applies to proposal-only ro/rw sessions. For automatic commands and edits,
+use an explicitly authorized [exec session](remote-execution.md).
+
 PeerRelay reuses the approval foundation tested in upstream commit `6234675`.
 It runs independently of upstream. The requester model forwards a prompt and returns
 compact task/proposal IDs; it does not receive diffs or execute decisions.

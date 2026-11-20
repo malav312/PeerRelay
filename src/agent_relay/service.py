@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from .execution import ACTIVE, Executor, workspace
 from .filesystem import Filesystem
+from .questions import Questions
 from .schemas import CONTENT_LIMIT, Tool, payload_hash
 
 
@@ -39,6 +40,7 @@ REQUESTER = {
     "exit_mode",
     "cancel",
     "usage",
+    "answer_question",
 }
 RESPONDER = {
     "response_mode",
@@ -52,6 +54,8 @@ RESPONDER = {
     "command_status",
     "command_input",
     "command_cancel",
+    "ask_question",
+    "question_status",
 }
 
 
@@ -112,6 +116,8 @@ class Relay:
         self.db.execute("UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')")
         self.db.commit()
         self.executor = Executor(self.state, self.execution_authority)
+        self.questions = Questions(self.db)
+        self.db.commit()
 
     def close(self):
         with self.lock:
@@ -135,6 +141,7 @@ class Relay:
             )
         }
         self.executor.cancel_inactive(active)
+        self.questions.revoke()
 
     def sweep(self):
         self.db.execute("UPDATE lease SET active=0 WHERE expires<=?", (self.clock(),))
@@ -160,8 +167,8 @@ class Relay:
                     ON CONFLICT(role) DO UPDATE SET calls=calls+1""",
                     (role,),
                 )
-                self.db.commit()
                 self.revoke_processes()
+                self.db.commit()
                 return result
             except (TypeError, KeyError, ValidationError) as error:
                 self.db.rollback()
@@ -352,6 +359,8 @@ class Relay:
 
     def _complete(self, lease_id, task_id, summary, answer=""):
         self.working(lease_id, task_id)
+        if self.questions.pending(task_id):
+            raise Denied("Resolve pending questions before completing")
         if any(job["state"] in ACTIVE for job in self.executor.summaries(task_id)):
             raise Denied("Finish or cancel active commands before completing")
         bounded(summary, 2000)
@@ -373,6 +382,7 @@ class Relay:
             "summary": task["summary"],
             "proposals": [dict(p) for p in proposals],
             "commands": self.executor.summaries(task_id),
+            "questions": self.questions.pending(task_id),
             "responder_connected": bool(
                 self.db.execute(
                     "SELECT 1 FROM lease WHERE id=? AND active=1", (task["lease"],)
@@ -432,6 +442,8 @@ class Relay:
             if self.closed:
                 raise Denied("Relay closed")
             task = self.working(lease_id, task_id)
+            if self.questions.pending(task_id):
+                raise Denied("Requester response required before further execution")
             row = self.db.execute(
                 "SELECT binding FROM execution_modes WHERE mode=?", (task["mode"],)
             ).fetchone()
@@ -491,3 +503,28 @@ class Relay:
     def _command_cancel(self, lease_id, task_id, command_id):
         self.command_owned(lease_id, task_id, command_id)
         return self.executor.cancel(command_id)
+
+    def _ask_question(self, lease_id, task_id, operation_id, message, choices=None):
+        self.working(lease_id, task_id)
+        bounded(operation_id, 100)
+        bounded(message, 4000)
+        choices = [] if choices is None else choices
+        if not isinstance(choices, list) or len(choices) > 8:
+            raise Denied("At most eight suggested choices")
+        for choice in choices:
+            bounded(choice, 200)
+        return self.questions.ask(task_id, operation_id, message, choices)
+
+    def _question_status(self, lease_id, task_id, question_id):
+        self.working(lease_id, task_id)
+        return self.questions.get(task_id, question_id)
+
+    def _answer_question(self, mode_id, task_id, question_id, action, answer=""):
+        task = self.owned(mode_id, task_id, active=True)
+        self.working(task["lease"], task_id)
+        if action not in ("accept", "decline", "cancel"):
+            raise Denied("Invalid response action")
+        bounded(answer, 8000, empty=action != "accept")
+        if action != "accept" and answer:
+            raise Denied("Decline/cancel must not carry an answer")
+        return self.questions.answer(task_id, question_id, action, answer)

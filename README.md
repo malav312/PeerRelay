@@ -1,172 +1,109 @@
 # PeerRelay
 
-A standalone local MCP integration for two people using Codex or Claude Code.
-A keeps a minimal requester conversation; B's authorized active agent does the
-substantive reasoning. No provider credentials are copied or read. Upstream is not
-a dependency, and running upstream services are unaffected.
+Alice keeps a small requester chat. Bob offers his own active Codex or Claude Code
+agent to do the reasoning. PeerRelay routes work to Bob and, with Alice's explicit
+execution permission, runs Bob's commands on Alice's machine in her existing
+project/worktree. Each person stays signed into their own account. PeerRelay
+makes no provider/model calls and does not copy provider credentials.
 
-This first version supports scoped text reads, directory listing, literal search,
-replacement proposals, and human-operated local application. The write path has
-been exercised through two real stdio MCP processes and HTTPS. Native Codex/Claude
-mode persistence and actual requester token savings still need live acceptance.
+Follow the [two-laptop setup guide](docs/setup.md). Python 3.13+, uv, Git and a
+signed-in native client are required on each laptop; current support is macOS/Linux.
+The repository is private, so Bob needs access or a private source copy.
 
-For step-by-step installation, follow the [two-laptop setup guide](docs/setup.md).
+## Full coding sessions
 
-## What each side does
-
-- A enables requester mode once per chat. New tasks and follow-ups are forwarded
-  unchanged. A receives a short receipt and asks for status when wanted. Proposed
-  changes are inspected and approved in a local terminal outside the model context.
-  Full reports are fetched only on request.
-- B enables response mode, waits for work, uses remote filesystem tools, proposes
-  changes and returns a brief summary. B can disconnect at any time.
-- Transport, polling inside a wait, and heartbeat are ordinary code with no model
-  calls. The surrounding client still uses its model to select tools and reply.
-  MCP does not hard-disable native host tools or enforce a local-token ceiling.
-
-The native agent on B is the worker. Both clients can use the same protocol; this
-is not a separate unattended Claude/Codex CLI worker. Keep B's response chat active.
-A idle/status interaction and B idle waits may still cost native model tokens.
-
-## Install on each laptop
-
-Python 3.13+ and `uv` are required. From this repository:
+1. Alice initializes a pair outside her project with `--grant exec`, then starts
+   the HTTPS relay. This explicitly permits trusted-host command execution.
+2. Alice privately transfers only the generated `responder/` bundle to Bob.
+3. Each installs its role's MCP configuration and skill. Bob activates response
+   mode; Alice activates requester mode with explicit execution authorization.
+4. Alice gives a task. Bob reads files and uses remote commands to create/edit/
+   rename/delete files, install dependencies, build, run tests and use Git on Alice.
+   Routine changes are applied directly without per-file manual approval.
+5. Bob sends project questions through the relay. Alice answers in her original
+   chat using native MCP elicitation when supported, or a short chat reply.
+6. Alice receives compact states and Bob's summary. Either person can stop.
 
 ```sh
 uv sync --frozen
-```
-
-Use the absolute path to `.venv/bin/peer-relay` in MCP configuration. Do not ship
-one laptop's virtual environment to the other laptop.
-
-## Pair a project on A
-
-Start with a disposable project to test writes. The pairing directory must be
-outside the registered project. Choose A's reachable LAN IP, not the example IP.
-
-```sh
 .venv/bin/peer-relay init \
-  --project /absolute/path/to/project \
-  --pair-dir /absolute/path/to/private-peerrelay-pair \
-  --host 192.168.1.100 --port 9443 --grant rw
-.venv/bin/peer-relay serve \
-  --config /absolute/path/to/private-peerrelay-pair/server.json
+  --project /absolute/path/to/alice-worktree \
+  --pair-dir /absolute/path/to/private-pair \
+  --host 192.168.1.100 --port 9443 --grant exec
+.venv/bin/peer-relay serve --config /absolute/path/to/private-pair/server.json
 ```
 
-New pairs default to `ro`; `--grant rw` explicitly permits replacement proposals.
-Keep that server running. `init` creates separate requester/responder credentials
-and a private TLS certificate valid for 30 days. Transfer only the generated
-`responder/` directory to B through a private channel. It contains `client.json`,
-`responder.token` and `gateway.crt`; paths are relative so the directory is portable.
-Keep file permissions private (`chmod 700` directory, `chmod 600` its three files
-if transfer changed them). Never send B the server key or requester token.
+Replace the host with Alice's reachable LAN address. Keep the server running.
+Never put pairing data inside the project. Transfer only `responder/`, not Alice's
+requester token or TLS private key. See the setup guide for client commands.
 
-The registered root is identity-bound. Keep private state and journals. Changing
-projects requires a fresh pair; do not delete a journal to bypass root binding.
+## Permissions and branches
 
-## Connect the native client
+`exec` commands run as Alice's relay OS user, with that user's filesystem/network
+permissions. This is trusted-host access, **not a project sandbox**. A working
+directory check does not prevent commands from accessing other host paths. Use it
+only with a trusted responder and tasks whose effects Alice authorizes. For OS
+isolation, run the whole relay in an appropriately restricted account/container.
+Native agents' own host tools are not disabled by an MCP skill.
 
-On A use `requester/client.json`. On B use the transferred `responder/client.json`.
-The command below is the same on both; substitute the local executable and config.
+The mode records the exact registered root and Git worktree/branch. No branch is
+created or switched automatically. Existing uncommitted changes stay in place;
+ordinary command tools can modify them. Subsequent commands stop if the root or
+branch changes; deliberately activate a new requester mode to continue there.
+Commands themselves may perform an authorized branch switch. There is no automatic
+commit, stash, reset or rollback. Register the actual conversation worktree, not
+another checkout of the same repository.
 
-Codex CLI:
+New pairs still default to `ro`. Existing `rw` pairs retain replacement proposals
+with [human-local approval](docs/local-approval.md); they do not gain shell access.
+An `exec` pair also needs requester activation with `execution=true`. Existing
+configs without a grant keep their historical `rw` behavior. No upgrade silently
+rewrites private pairing state or permissions.
 
-```sh
-codex mcp add peerrelay -- /absolute/path/PeerRelay/.venv/bin/peer-relay \
-  mcp --config /absolute/path/to/role/client.json
-```
+## Questions, waiting and stopping
 
-Claude Code:
+Question records and accept/decline/cancel replies are bound to Alice's task.
+Replies never expand execution permissions. Bob must use `ask_requester` for
+Alice's decisions; generic MCP cannot intercept every native agent approval dialog.
+Bob's own account/client permission prompts remain with Bob. Do not send secrets
+through question forms or chat replies.
 
-```sh
-claude mcp add --transport stdio peerrelay -- \
-  /absolute/path/PeerRelay/.venv/bin/peer-relay \
-  mcp --config /absolute/path/to/role/client.json
-```
+Elicitation is delivered during an active requester wait. If Alice's client lacks
+form support, the question is returned for a short chat response. An idle chat
+cannot reliably be awakened: after a wait times out, Alice asks for progress/resume.
+Waits/heartbeat/polling are ordinary code, but model turns around them can cost
+usage. Actual native token savings and client persistence still need acceptance.
 
-For desktop clients, add the same command and arguments through their MCP settings.
-A JSON configuration example is in `examples/mcp.json`; it contains no secrets.
-Reconnect/restart the client after configuring. A exposes requester tools only;
-B exposes responder tools only.
-
-Install the skills from `plugins/codex/skills` into Codex's supported skill location
-(for example `.agents/skills` in the selected project), or load the skills-only
-plugin with the client's plugin installer. For Claude Code, load
-`plugins/claude` as a local plugin, or install its skill folders in `.claude/skills`.
-Both packages use the same mode instructions; MCP configuration is separate so
-no credentials or machine-specific paths are embedded in a distributable plugin.
-
-- Codex: invoke `$requester-mode` on A or `$response-mode` on B, or select the skill
-  through `/skills`. Custom skills are not guaranteed to be bare slash commands.
-- Claude standalone skills: `/requester-mode` and `/response-mode`.
-- Claude plugin skills: normally `/peerrelay:requester-mode` and
-  `/peerrelay:response-mode`.
-
-The MCP server also exposes `requester-mode`/`response-mode` prompt templates if
-that client's prompt browser supports them. Do not enable response mode implicitly.
-
-## Verify writes
-
-1. On B activate response mode. On A activate requester mode.
-2. Ask A: "Read hello.txt and propose replacing its contents with 'hello from B'."
-3. A returns a proposal ID; the file remains unchanged.
-4. In your own local terminal, inspect the proposal with the CLI below. Review its
-   exact escaped bytes/diff, root identity, original grants and baseline hash.
-5. Personally approve its exact inspected digest. Do not ask Codex/Claude to run
-   the approval command or treat a task prompt as approval.
-6. Verify the file changed. Repeating that decision returns the local record
-   without another write; the remote operation receipt remains `proposed`.
-7. Tell B to disconnect. New tasks, remote tools and pending local applies fail.
-
-```sh
-.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json inspect PROPOSAL_ID
-.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json approve PROPOSAL_ID --digest INSPECTED_DIGEST
-.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json reject PROPOSAL_ID --digest INSPECTED_DIGEST
-.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json status PROPOSAL_ID
-```
-
-These are direct human terminal actions, with no model or gateway calls. Neither
-MCP role nor the HTTPS API exposes review/apply/approve/reject. Native host shell
-access is not sandboxed by a skill: the human must use this flow themselves.
-Local outcomes are pending/applied/rejected/stale/uncertain; no remote application
-status endpoint is provided. Stale proposals need a fresh read and proposal;
-uncertain applications require human reconciliation and must never be replayed
-under a new ID automatically. See [local approval and upgrade](docs/local-approval.md).
-
-## Disconnect and recovery
-
-Either side may stop. B's explicit disconnect revokes its lease immediately.
-Lost MCP processes stop heartbeat; access expires within 60 seconds. Closing a
-chat may leave a shared MCP process running, so explicitly disconnect B before
-leaving response mode. Server restart revokes all prior leases. Reconnecting does
-not automatically resume interrupted tasks.
-
-Revocation stops remote filesystem access and unapplied proposals. It cannot kill
-an independently running native model process; B's skill must stop reasoning when
-instructed or denied. A file apply already executing may finish before disconnect
-is acknowledged; completed writes are not rolled back. Completed results remain
-inspectable. Keep the durable journals for replay protection.
+Commands have stable IDs, bounded output, optional PTY/stdin, timeout and cancellation.
+Disconnect, cancel, mode exit and lease expiry revoke further execution and request
+process-group termination. Completed effects are not rolled back. Escaped/detached
+or privileged processes may survive; process groups are not OS containment. A server
+crash leaves unfinished records uncertain, never automatically replayed. Reconnect
+requires explicit activation; do not resubmit uncertain effects under fresh IDs.
 
 ## Scope and limits
 
-One paired responder and one project; 32 pending tasks, 128 remote tool calls per
-task, 32 proposals per task, 512 KiB NUL-free UTF-8 files, and 32,768-character full answers.
-Each existing file is applied independently. No creation, shell/tests, deletion, renaming, binary
-editing, automatic dependency installation, or multi-file atomic transaction.
-Symlinks, hardlinks, path escapes, and mount crossings are refused. The project
-grant includes its regular files; it is not a secret-file classifier.
+One project and responder per pair; 32 pending tasks, 128 admitted tools per task,
+32 proposals and 32 questions per task. Commands allow four active jobs per task,
+1..86400 second timeouts (default 300), 1 MiB retained combined output, 16 KiB pages
+and input. Read tools handle bounded NUL-free UTF-8 text; commands can operate on
+other file formats. No transaction covers multiple files or arbitrary shell effects.
+Large logs are truncated; write a project log deliberately when full output matters.
 
-Version checks preserve detected local edits. External editors do not share the
-relay's lock, so avoid editing a file during apply: ordinary filesystem rename
-cannot atomically compare-and-swap against arbitrary concurrent external writers.
-Replacement preserves POSIX permission bits but not inode/timestamps, group ownership,
-ACLs, extended attributes, resource forks or filesystem flags.
-Private state contains task text, results and journaled file contents. This first
-version has no automatic retention cleanup; protect that directory and backups.
+The command environment includes PATH/HOME/USER/LOGNAME/LANG/TMPDIR when present,
+TERM and GIT_TERMINAL_PROMPT=0; arbitrary server variables are not inherited. Use
+explicit virtual-environment executables or commands such as `uv run` as appropriate.
+This does not prevent trusted commands from reading Alice's host files or shell profiles.
+The command timeout must cover the intended work, including interactive waiting.
 
-`usage` reports relay HTTP requests (including heartbeat/polling) separately from
-model tokens. Native requester/responder token totals are `null`, not invented
-zeros. Use each client's own usage reporting for a comparable token benchmark.
+Private journals contain task text, questions/replies, command text/output and file
+proposals. There is no automatic retention scheduler in this version. Protect them
+and their backups. The generated certificate lasts 30 days; address/certificate
+changes require a fresh pairing. Keep old journals rather than bypassing root binding.
+
+See [execution details](docs/remote-execution.md) and [verification](docs/verification.md).
+The tests use disposable projects and real TLS/MCP processes, not live provider tasks.
+Filesystem foundation attribution is preserved in NOTICE/LICENSE.
 
 ## Development
 
@@ -175,8 +112,3 @@ uv run pytest -q
 uv run ruff check src tests
 uv run ruff format --check src tests
 ```
-
-The test suite launches localhost TLS and two SDK MCP subprocesses and writes only
-disposable fixture projects. See `docs/verification.md` for evidence and remaining
-acceptance work. MIT-licensed filesystem foundations were adapted from upstream;
-see `NOTICE` and `LICENSE`.

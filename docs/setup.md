@@ -47,12 +47,14 @@ On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 "$RELAY/.venv/bin/peer-relay" init \
   --project "$PROJECT" \
   --pair-dir "$PAIR" \
-  --host 192.168.1.100 --port 9443 --grant rw
+  --host 192.168.1.100 --port 9443 --grant exec
 "$RELAY/.venv/bin/peer-relay" serve --config "$PAIR/server.json"
 ```
 
-The explicit `--grant rw` is required for this replacement test. Omit it for a
-read-only pair; adding approval support never upgrades a read-only grant.
+The explicit `--grant exec` grants trusted-host commands as Alice's OS user.
+This is not a project sandbox. Omit it for read-only access, or use `rw` for
+replacement proposals with human-local approval. Existing grants never upgrade
+automatically. Start with this disposable project before using a real checkout.
 
 Leave that terminal running. In another terminal, restore the same `RELAY`,
 `PROJECT`, and `PAIR` values before continuing. Allow inbound connections to
@@ -111,8 +113,9 @@ mkdir -p "$CHAT_DIR"
 
 Then choose **one** client setup below on each laptop. A and B may choose different
 clients. Run client commands from `CHAT_DIR` so project-local configuration and
-skills are loaded together. MCP has no approve/apply/reject tool. Human decisions
-are made directly in A's terminal, not through the native agent.
+skills are loaded together. In an exec session Bob can run commands and make
+changes directly; Alice answers project questions in her original chat. The older
+proposal-only mode still uses the human-local approval CLI.
 
 ### Codex
 
@@ -150,39 +153,28 @@ local stdio MCP; use the executable/arguments in [the JSON example](../examples/
 and open the same chat directory. A remotely hosted chat cannot launch your local
 executable merely because it appears in a configuration file.
 
-## 5. Run the first task and prove writes
+## 5. Run the first task and a question
 
 1. Activate B's response mode first and keep that chat active.
-2. Activate A's requester mode.
-3. Tell A: **Read hello.txt and propose replacing it with hello from B followed by a newline.**
-4. A should return a task receipt and stop. Ask for status when wanted.
-5. In A's separate terminal, `cat "$PROJECT/hello.txt"` must still print `before`.
-6. Copy the returned proposal ID into your own terminal. Run the local inspection
-   command below and review the exact escaped bytes/diff, target, expected version,
-   root identity, original grants and baseline hash.
-7. Personally run approve with the exact digest from that inspection. Do not ask
-   the model to generate or execute the approval command. The model's text is not consent.
-8. Run `cat "$PROJECT/hello.txt"` again. It should print `hello from B`.
-9. Tell B: **Disconnect PeerRelay now.** A's next submission must be refused,
-   without local execution. Pending local applies are also revoked.
+2. Activate A's requester skill and explicitly say: **Enable requester mode with
+   command execution on my registered workspace. I authorize this trusted-host session.**
+   Verify the returned workspace is the correct conversation checkout/worktree.
+3. Tell A: **Replace hello.txt with hello from B followed by a newline, create
+   greeting.txt, and run commands that verify both files. Then ask me whether
+   the final format should be JSON or CSV and apply my choice.**
+4. B executes on A directly. No per-file manual approval is needed. A receives
+   compact command states and a brief summary. Check the files in A's editor.
+5. A's wait shows native elicitation if supported, otherwise a question in chat.
+   Answer it; the reply goes to B. If A's wait already ended, ask for progress or
+   resume to receive the pending question. Do not expect an idle chat to wake itself.
+6. Confirm B reports actual command exit codes and the requested result.
+7. Tell B: **Disconnect PeerRelay now.** Further tasks/commands must be refused.
+   Disconnect also requests termination of managed command process groups; already
+   completed effects are not rolled back.
 
-Run these yourself in A's terminal, substituting the inspected ID/digest:
-
-```sh
-"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" inspect PROPOSAL_ID
-"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" approve PROPOSAL_ID --digest INSPECTED_DIGEST
-"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" status PROPOSAL_ID
-```
-
-To decline a change, use `reject PROPOSAL_ID --digest INSPECTED_DIGEST` instead.
-Place `--json` before the subcommand if you need escaped machine-readable output.
-Inspection and decisions make no model/gateway calls and work from local state;
-application still requires a live B lease and an active, uncancelled requester task.
-Repeating a decision returns its record without another write. The remote receipt
-stays `proposed`, even after local application; use local status to see the outcome.
-A changed target becomes `stale`; interrupted application becomes `uncertain` and
-must never auto-replay, even if the target bytes match. Preserve journals and
-staging evidence. See [local approval and upgrade](local-approval.md).
+For ro/rw pairings, use the [local approval workflow](local-approval.md) instead.
+For exec details, interactive commands, branch changes and question delivery limits,
+see [remote execution](remote-execution.md).
 
 ## Stop, reconnect, or switch projects
 
@@ -212,8 +204,8 @@ staging evidence. See [local approval and upgrade](local-approval.md).
 | Skill missing | Open the configured chat directory; verify its role's SKILL.md exists; restart the client. |
 | Local status stale | Re-read the file and request a new proposal. Existing approved contents are never silently rebased. |
 
-B cannot create files or run shell commands/tests on A through this version. Native mode persistence,
-approval UX and actual token savings still need acceptance in your clients.
+Exec sessions can create files and run commands/tests on A. Native mode persistence,
+elicitation UI and actual token savings still need acceptance in your clients.
 See [verification](verification.md) and [scope/limits](../README.md#scope-and-limits).
 
 Client references: [Codex repository skills](https://developers.openai.com/blog/skills-agents-sdk),
@@ -221,4 +213,6 @@ Client references: [Codex repository skills](https://developers.openai.com/blog/
 [Claude Code skill locations](https://code.claude.com/docs/en/skills).
 MCP command syntax was also checked against the locally installed CLI help.
 
-For an existing pair, follow the [in-place upgrade steps](local-approval.md#upgrading-an-existing-pair). Do not rerun init or replace its private state.
+For an existing pair, follow [execution upgrade steps](remote-execution.md#enabling-it)
+to deliberately enable exec, or retain the [proposal-only upgrade](local-approval.md#upgrading-an-existing-pair).
+Do not rerun init or replace private state.

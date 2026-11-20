@@ -15,3 +15,12 @@ errors); 2 denial checks already passed. Real commands and full suite now 105 pa
 Found macOS returns EPERM for a second signal to an exited process group; reproduced
 outside the test harness and fixed by checking leader exit before treating EPERM
 as termination failure. Live permission failures remain uncertain. Ruff clean.
+Task 2: question suite RED 9 failures; MCP integration RED 4 failures. GREEN:
+real HTTPS + two MCP processes apply changes and route accept/decline/cancel and
+unsupported-client chat fallback. Additional EOF/concurrency/task isolation/crash
+coverage passes. Transient macOS signal error required retries with bounded
+uncertainty, observed failing deterministic regression then corrected. Full122pass.
+Task 3: 5 old-skill fresh-context probes consistently could not execute or route
+questions; updated both role skills and mirrored MCP instructions. Guided probes
+and final review in progress. Documentation now distinguishes exec from old modes,
+trusted-host scope, same worktree, asynchronous process stop and idle-chat limits.

@@ -249,3 +249,109 @@ def test_completion_waits_for_commands_and_shutdown_does_not_replay(session):
     finally:
         replacement.close()
     assert not (root / "forbidden").exists()
+
+
+def test_eof_delivers_input_and_job_limit_keeps_heartbeat_responsive(session):
+    relay, root, _, lease, ident = session
+    job = run(relay, lease, ident, python("import sys; open('all','w').write(sys.stdin.read())"))
+    for _ in range(100):
+        if status(relay, lease, ident, job)["state"] == "running":
+            break
+        time.sleep(0.02)
+    relay.call(
+        "responder",
+        "command_input",
+        dict(
+            lease_id=lease,
+            task_id=ident,
+            command_id=job["command_id"],
+            operation_id="eof",
+            data="complete",
+            eof=True,
+        ),
+    )
+    assert finish(relay, lease, ident, job)["exit_code"] == 0
+    assert (root / "all").read_text() == "complete"
+    jobs = [run(relay, lease, ident, "sleep 30", operation=f"job{i}") for i in range(4)]
+    with pytest.raises(Denied):
+        run(relay, lease, ident, "touch forbidden", operation="fifth")
+    assert relay.call("responder", "heartbeat", {"lease_id": lease})["state"] == "available"
+    for other in jobs:
+        relay.call(
+            "responder",
+            "command_cancel",
+            dict(lease_id=lease, task_id=ident, command_id=other["command_id"]),
+        )
+    assert all(finish(relay, lease, ident, other)["state"] == "cancelled" for other in jobs)
+
+
+def test_command_output_access_is_bound_to_task(session):
+    relay, _, mode, lease, ident = session
+    job = run(relay, lease, ident, "printf private")
+    assert finish(relay, lease, ident, job)["output"] == "private"
+    other = relay.call(
+        "requester", "submit", dict(mode_id=mode, operation_id="other", prompt="Other task")
+    )["task_id"]
+    with pytest.raises(Denied):
+        status(relay, lease, other, job)
+
+
+def test_crashed_server_marks_command_uncertain_without_replay(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    state = tmp_path / "state"
+    script = """
+import json, os, sys, time
+from agent_relay.service import Relay
+r=Relay(sys.argv[1],sys.argv[2],grant='exec')
+m=r.call('requester','requester_mode',{'execution':True})['mode_id']
+l=r.call('responder','response_mode',{})['lease_id']
+t=r.call('requester','submit',dict(mode_id=m,operation_id='t',prompt='task'))['task_id']
+r.call('responder','claim',dict(lease_id=l))
+j=r.call('responder','execute',dict(lease_id=l,task_id=t,operation_id='x',
+       command='printf x >> count; sleep 1'))
+print(json.dumps(j),flush=True)
+while not (r.root/'count').exists(): time.sleep(.01)
+os._exit(17)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(root), str(state)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 17, result.stderr
+    job = json.loads(result.stdout)
+    relay = Relay(root, state, grant="exec")
+    try:
+        assert relay.executor.status(job["command_id"])["state"] == "uncertain"
+        assert (root / "count").read_text() == "x"
+    finally:
+        relay.close()
+
+
+def test_transient_group_signal_failure_does_not_lose_cancellation(session, monkeypatch):
+    import os
+
+    relay, _, _, lease, ident = session
+    job = run(relay, lease, ident, "printf ready; sleep 30")
+    for _ in range(100):
+        if "ready" in status(relay, lease, ident, job)["output"]:
+            break
+        time.sleep(0.02)
+    kill = os.killpg
+    once = [True]
+
+    def transient(pid, sig):
+        if once[0]:
+            once[0] = False
+            raise PermissionError("macOS process group transition")
+        return kill(pid, sig)
+
+    monkeypatch.setattr(os, "killpg", transient)
+    relay.call(
+        "responder",
+        "command_cancel",
+        dict(lease_id=lease, task_id=ident, command_id=job["command_id"]),
+    )
+    assert finish(relay, lease, ident, job)["state"] == "cancelled"

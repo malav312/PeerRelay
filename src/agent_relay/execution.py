@@ -154,10 +154,10 @@ class Executor:
             except ProcessLookupError:
                 pass
             except PermissionError:
-                # macOS can return EPERM for an already-exited process group.
-                # A live leader's permission failure remains an uncertain outcome.
-                if process.poll() is None:
-                    raise
+                # macOS can briefly return EPERM while a process group exits.
+                # The worker retries, then records uncertainty if exit cannot be confirmed.
+                return False
+        return True
 
     def _run(self, ident, task, lease, spec, control):
         process = None
@@ -195,6 +195,7 @@ class Executor:
                 self._update(ident, state="running")
             deadline = time.monotonic() + spec["timeout"]
             stopping = None
+            exited_at = None
             while True:
                 with self.lock:
                     if time.monotonic() >= deadline and not control["stop"]:
@@ -205,6 +206,8 @@ class Executor:
                             stopping = time.monotonic()
                         elif time.monotonic() - stopping >= 0.3:
                             self._signal(control, signal.SIGKILL)
+                            if time.monotonic() - stopping > 2 and process.poll() is None:
+                                raise RuntimeError("Process termination could not be confirmed")
                 for key, _ in selector.select(0.05):
                     try:
                         chunk = os.read(key.fd, PAGE)
@@ -222,6 +225,10 @@ class Executor:
                         self._signal(control, signal.SIGKILL)
                     if not selector.get_map():
                         break
+                    if exited_at is None:
+                        exited_at = time.monotonic()
+                    elif time.monotonic() - exited_at > 1:
+                        raise RuntimeError("Output stream stayed open after leader exit")
             self._update(ident, state=control["stop"] or "exited", exit_code=process.returncode)
         except BaseException as error:
             try:
