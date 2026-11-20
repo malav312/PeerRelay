@@ -1,4 +1,38 @@
-# Verification, 2026-11-19
+# Local-human approval verification — November 19, 2026
+
+Current adaptation suite: **87 passed** in the isolated standalone checkout.
+Ruff lint/format and Git whitespace checks pass. One upstream Starlette/httpx
+test-client deprecation warning remains. Independent review is pending.
+
+This includes 32 ported approval/integration tests from upstream 6234675, covering
+exact bytes, permission bits, tampering, stale targets, additive journals,
+connection closure, purge tombstones, two-process serialization, and process death
+before/after replacement. The port's first run had 23 missing/old-behavior failures
+and one pass; the approval foundation then passed all 32 tests.
+
+Standalone adapter tests prove remote role/API denial of review/apply/approve/reject,
+new ro defaults and explicit rw grants, replacement-only proposals, local offline
+CLI inspection/rejection, receipt separation, old proposal preservation, missing
+roots, live/expired/revoked leases, cancellation/mode exit/restart, and ordering of
+an already-started local apply before concurrent disconnect acknowledgement.
+Core adapter RED: 12 failures/7 passes before implementation; the MCP exposure
+regression also failed before removing the tools.
+
+The end-to-end TLS test runs two actual MCP subprocesses through the SDK, captures
+a remote replacement proposal, completes the model task, inspects/applies via a
+separate local CLI subprocess, checks exact output and duplicate protection, and
+confirms remote status still says proposed. These are synthetic tasks and local
+fixtures, not live models or user projects. No model/gateway call is made by local
+inspection/decisions. Requester submission/status still use native model turns.
+
+No live rollout, private pair access, service restart, or upstream code change was
+performed. Existing native client configurations/skill installations are untouched.
+Two-laptop native acceptance and actual token savings remain unmeasured. Earlier
+wording simulations below predate the changed human-only approval instructions.
+
+---
+
+# Initial delivery evidence (historical)
 
 The transport and approved write path run without any provider calls. The current
 suite includes real TLS certificate validation and two independent MCP stdio

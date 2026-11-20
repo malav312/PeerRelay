@@ -62,7 +62,7 @@ def create_app(config):
 
     @asynccontextmanager
     async def lifespan(app):
-        relay = Relay(config["root"], config["state_dir"])
+        relay = Relay(config["root"], config["state_dir"], grant=config.get("grant", "rw"))
         app.state.relay = relay
         stop = Event()
 

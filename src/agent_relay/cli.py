@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import sys
 
 from .client import Client, load, private_file
 from .setup import initialize
@@ -8,9 +9,15 @@ from .setup import initialize
 
 def main():
     os.umask(0o077)
+    if len(sys.argv) > 1 and sys.argv[1] == "proposal":
+        from .approval_cli import main as proposal_main
+
+        raise SystemExit(proposal_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="PeerRelay: paired requester and response modes")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
+    sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
+    init.add_argument("--grant", choices=("ro", "rw"), default="ro")
     init.add_argument("--project", required=True)
     init.add_argument("--pair-dir", required=True)
     init.add_argument(
@@ -24,7 +31,12 @@ def main():
     mcp.add_argument("--config", required=True)
     args = parser.parse_args()
     if args.command == "init":
-        print(json.dumps(initialize(args.project, args.pair_dir, args.host, args.port), indent=2))
+        print(
+            json.dumps(
+                initialize(args.project, args.pair_dir, args.host, args.port, grant=args.grant),
+                indent=2,
+            )
+        )
         return
     config = load(args.config)
     if args.command == "serve":

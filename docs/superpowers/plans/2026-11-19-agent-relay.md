@@ -1,4 +1,7 @@
-# PeerRelay Implementation Plan
+# PeerRelay Initial Implementation Plan
+
+Historical initial plan. Approval and creation behavior is superseded by
+[the local-human adaptation](2026-11-19-local-human-approval.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 

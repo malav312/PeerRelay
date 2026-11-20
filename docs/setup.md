@@ -47,9 +47,12 @@ On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 "$RELAY/.venv/bin/peer-relay" init \
   --project "$PROJECT" \
   --pair-dir "$PAIR" \
-  --host 192.168.1.100 --port 9443
+  --host 192.168.1.100 --port 9443 --grant rw
 "$RELAY/.venv/bin/peer-relay" serve --config "$PAIR/server.json"
 ```
+
+The explicit `--grant rw` is required for this replacement test. Omit it for a
+read-only pair; adding approval support never upgrades a read-only grant.
 
 Leave that terminal running. In another terminal, restore the same `RELAY`,
 `PROJECT`, and `PAIR` values before continuing. Allow inbound connections to
@@ -108,8 +111,8 @@ mkdir -p "$CHAT_DIR"
 
 Then choose **one** client setup below on each laptop. A and B may choose different
 clients. Run client commands from `CHAT_DIR` so project-local configuration and
-skills are loaded together. Keep tool approval enabled for `approve_change`;
-do not grant it unattended approval.
+skills are loaded together. MCP has no approve/apply/reject tool. Human decisions
+are made directly in A's terminal, not through the native agent.
 
 ### Codex
 
@@ -154,16 +157,32 @@ executable merely because it appears in a configuration file.
 3. Tell A: **Read hello.txt and propose replacing it with hello from B followed by a newline.**
 4. A should return a task receipt and stop. Ask for status when wanted.
 5. In A's separate terminal, `cat "$PROJECT/hello.txt"` must still print `before`.
-6. Ask A to show the proposed diff. Review every page, then explicitly approve
-   that specific proposal.
-7. Run `cat "$PROJECT/hello.txt"` again. It should print `hello from B`.
-8. Tell B: **Disconnect PeerRelay now.** A's next submission must be refused,
-   without local execution.
+6. Copy the returned proposal ID into your own terminal. Run the local inspection
+   command below and review the exact escaped bytes/diff, target, expected version,
+   root identity, original grants and baseline hash.
+7. Personally run approve with the exact digest from that inspection. Do not ask
+   the model to generate or execute the approval command. The model's text is not consent.
+8. Run `cat "$PROJECT/hello.txt"` again. It should print `hello from B`.
+9. Tell B: **Disconnect PeerRelay now.** A's next submission must be refused,
+   without local execution. Pending local applies are also revoked.
 
-Repeated approval of the same proposal returns its receipt without another write.
-A local file edit before approval causes a conflict. Do not edit a target file
-concurrently with application. For an unknown write outcome, inspect the file and
-receipt; do not retry under a new operation ID.
+Run these yourself in A's terminal, substituting the inspected ID/digest:
+
+```sh
+"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" inspect PROPOSAL_ID
+"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" approve PROPOSAL_ID --digest INSPECTED_DIGEST
+"$RELAY/.venv/bin/peer-relay" proposal --config "$PAIR/server.json" status PROPOSAL_ID
+```
+
+To decline a change, use `reject PROPOSAL_ID --digest INSPECTED_DIGEST` instead.
+Place `--json` before the subcommand if you need escaped machine-readable output.
+Inspection and decisions make no model/gateway calls and work from local state;
+application still requires a live B lease and an active, uncancelled requester task.
+Repeating a decision returns its record without another write. The remote receipt
+stays `proposed`, even after local application; use local status to see the outcome.
+A changed target becomes `stale`; interrupted application becomes `uncertain` and
+must never auto-replay, even if the target bytes match. Preserve journals and
+staging evidence. See [local approval and upgrade](local-approval.md).
 
 ## Stop, reconnect, or switch projects
 
@@ -191,9 +210,9 @@ receipt; do not retry under a new operation ID.
 | Already-connected responder | Disconnect the existing B chat, or wait for its lost lease to expire before reconnecting. |
 | Wrong tools appear | A must load requester config; B must load responder config. Restart after correcting it. |
 | Skill missing | Open the configured chat directory; verify its role's SKILL.md exists; restart the client. |
-| Proposal conflict | Re-read the file and request a new proposal. Existing approved contents are never silently rebased. |
+| Local status stale | Re-read the file and request a new proposal. Existing approved contents are never silently rebased. |
 
-B cannot run shell commands or tests on A through v1. Native mode persistence,
+B cannot create files or run shell commands/tests on A through this version. Native mode persistence,
 approval UX and actual token savings still need acceptance in your clients.
 See [verification](verification.md) and [scope/limits](../README.md#scope-and-limits).
 
@@ -201,3 +220,5 @@ Client references: [Codex repository skills](https://developers.openai.com/blog/
 [OpenAI skill concepts](https://developers.openai.com/plugins/concepts/skills), and
 [Claude Code skill locations](https://code.claude.com/docs/en/skills).
 MCP command syntax was also checked against the locally installed CLI help.
+
+For an existing pair, follow the [in-place upgrade steps](local-approval.md#upgrading-an-existing-pair). Do not rerun init or replace its private state.

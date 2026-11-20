@@ -1,9 +1,10 @@
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
-from .schemas import canonical, payload_hash
+from agent_relay.schemas import canonical, payload_hash
 
 
 class Journal:
@@ -25,16 +26,51 @@ class Journal:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS roots (alias TEXT PRIMARY KEY, identity TEXT NOT NULL)"
             )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS local_proposals ("
+                "id TEXT PRIMARY KEY, binding TEXT NOT NULL, digest TEXT NOT NULL, "
+                "base_content TEXT, state TEXT NOT NULL, detail TEXT NOT NULL)"
+            )
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS local_proposal_events ("
+                "sequence INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL, "
+                "state TEXT NOT NULL, detail TEXT NOT NULL, "
+                "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"
+            )
         os.chmod(self.path, 0o600)
 
+    @contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
-        db.execute("PRAGMA synchronous=FULL")
-        return db
+        try:
+            db.execute("PRAGMA synchronous=FULL")
+            with db:
+                yield db
+        finally:
+            db.close()
+
+    def proposal(self, operation_id, binding, base_content, result):
+        """Capture admitted proposal and its receipt in one durable transaction."""
+        binding = {**binding, "base_sha256": payload_hash(base_content)}
+        digest = payload_hash(binding)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT hash FROM operations WHERE id=?", (operation_id,)).fetchone()
+            if not row or row[0] != payload_hash([binding["payload"], binding["grants"]]):
+                raise ValueError("Proposal does not match admitted operation")
+            db.execute(
+                "INSERT OR IGNORE INTO local_proposals VALUES (?, ?, ?, ?, 'pending', '{}')",
+                (operation_id, canonical(binding), digest, base_content),
+            )
+            db.execute(
+                "UPDATE operations SET result=? WHERE id=? AND result IS NULL",
+                (canonical(result), operation_id),
+            )
 
     def root(self, alias, identity):
         value = canonical(identity)
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             previous = db.execute("SELECT identity FROM roots WHERE alias=?", (alias,)).fetchone()
             if previous and previous[0] != value:
                 raise ValueError("Registered root changed; explicit re-registration required")
@@ -64,6 +100,7 @@ class Journal:
     def purge(self, operation_ids):
         # Keep hashes/tombstones; never allow an old operation to execute again.
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             for operation_id in operation_ids:
                 row = db.execute(
                     "SELECT result FROM operations WHERE id=?", (operation_id,)
@@ -73,6 +110,26 @@ class Journal:
                     db.execute(
                         "UPDATE operations SET result=? WHERE id=?",
                         (canonical({"status": status}), operation_id),
+                    )
+                proposal = db.execute(
+                    "SELECT state FROM local_proposals WHERE id=?", (operation_id,)
+                ).fetchone()
+                if proposal:
+                    state = proposal[0]
+                    if state == "pending":
+                        state = "rejected"
+                    elif state in ("approved", "applying"):
+                        state = "uncertain"
+                    detail = canonical({"purged": True, "reason": "Retention purge; cannot apply"})
+                    db.execute(
+                        "UPDATE local_proposals SET binding='{}',base_content=NULL,"
+                        "state=?,detail=? WHERE id=?",
+                        (state, detail, operation_id),
+                    )
+                    db.execute(
+                        "INSERT INTO local_proposal_events (proposal_id,state,detail) "
+                        "VALUES (?,?,?)",
+                        (operation_id, state, detail),
                     )
 
     def lookup(self, operation_id):

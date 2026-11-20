@@ -79,3 +79,21 @@ def test_server_rejects_private_files_inside_project(tmp_path, field):
     with pytest.raises(ValueError, match="overlap"):
         with TestClient(create_app(config), base_url="https://localhost"):
             pass
+
+
+@pytest.mark.parametrize("role", ["requester", "responder"])
+@pytest.mark.parametrize("method", ["apply", "review", "approve", "reject"])
+def test_authenticated_http_cannot_make_local_decisions(tmp_path, role, method):
+    root = tmp_path / "project"
+    root.mkdir()
+    pair = tmp_path / "pair"
+    initialize(root, pair, "127.0.0.1", 9443, grant="rw")
+    config = load(pair / "server.json")
+    token = (pair / role / (role + ".token")).read_text()
+    with TestClient(create_app(config), base_url="https://localhost") as client:
+        response = client.post(
+            "/rpc",
+            headers={"Authorization": "Bearer " + token},
+            json={"method": method, "arguments": {}},
+        )
+        assert response.status_code == 403

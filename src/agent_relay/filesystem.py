@@ -9,8 +9,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .journal import Journal
-from .schemas import CONTENT_LIMIT, Tool, payload_hash
+from agent_relay.journal import Journal
+from agent_relay.schemas import CONTENT_LIMIT, Tool, payload_hash
 
 
 class Refused(Exception):
@@ -23,6 +23,10 @@ class Changed(Exception):
 
 def identity(st):
     return [st.st_dev, st.st_ino]
+
+
+def reserved(name):
+    return name.casefold().startswith((".peerrelay-create-", ".peerrelay-apply-", ".relay-write-"))
 
 
 def version(st, data):
@@ -38,7 +42,7 @@ def version(st, data):
 
 
 class Filesystem:
-    def __init__(self, roots, state_dir, protected_paths=()):
+    def __init__(self, roots, state_dir, protected_paths=(), allow_unavailable_roots=False):
         self.roots = {}
         self.lock = threading.Lock()
         paths = [Path(r["path"]).absolute() for r in roots.values()]
@@ -48,7 +52,12 @@ class Filesystem:
             if any(p == secret or p in secret.parents for p in paths):
                 raise ValueError("Private configuration/credentials overlap a root")
         for p in paths:
-            if p.resolve() != p or p == state or p in state.parents or state in p.parents:
+            if (
+                (p.resolve() != p and not allow_unavailable_roots)
+                or p == state
+                or p in state.parents
+                or state in p.parents
+            ):
                 raise ValueError("Roots and private state must be separate and not symlinks")
             if any(p != q and (p in q.parents or q in p.parents) for q in paths):
                 raise ValueError("Overlapping roots")
@@ -60,10 +69,19 @@ class Filesystem:
                 if config["mode"] not in ("ro", "rw"):
                     raise ValueError("Invalid root mode")
                 p = Path(config["path"]).absolute()
-                fd = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                st = os.fstat(fd)
-                self.roots[alias] = (p, fd, identity(st), config["mode"])
-                self.journal.root(alias, [str(p), *identity(st)])
+                fd = None
+                try:
+                    if p.resolve() != p:
+                        raise ValueError("Registered roots must not use symlinks")
+                    fd = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                    st = os.fstat(fd)
+                    self.journal.root(alias, [str(p), *identity(st)])
+                    self.roots[alias] = (p, fd, identity(st), config["mode"])
+                except (OSError, ValueError):
+                    if fd is not None:
+                        os.close(fd)
+                    if not allow_unavailable_roots:
+                        raise
         except BaseException:
             self.close()
             raise
@@ -72,6 +90,34 @@ class Filesystem:
         for _, fd, _, _ in self.roots.values():
             os.close(fd)
         self.roots.clear()
+
+    @contextmanager
+    def execution_guard(self):
+        """One stable lock shared by tool execution and local decisions/processes."""
+        with self.lock:
+            fd = os.open(
+                self.journal.directory / "execution.lock",
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+                0o600,
+            )
+            try:
+                st = os.fstat(fd)
+                if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != os.getuid():
+                    raise Refused()
+                os.fchmod(fd, 0o600)
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                yield
+            finally:
+                os.close(fd)
+
+    def proposal_binding(self, operation_id, payload, grants):
+        path, _, ident, _ = self.roots[payload["root"]]
+        return {
+            "id": operation_id,
+            "root_identity": [str(path), *ident],
+            "payload": payload,
+            "grants": grants,
+        }
 
     def root(self, alias):
         if alias not in self.roots:
@@ -88,7 +134,7 @@ class Filesystem:
         if path.startswith("/") or "\x00" in path:
             raise Refused()
         parts = path.split("/")
-        if any(p in ("", "..") or p.startswith(".relay-write-") for p in parts):
+        if any(p in ("", "..") or reserved(p) for p in parts):
             raise Refused()
         if "." in parts and parts != ["."]:
             raise Refused()
@@ -153,7 +199,7 @@ class Filesystem:
                         if scanned > 10000:
                             break
                         st = entry.stat(follow_symlinks=False)
-                        if entry.name.startswith(".relay-write-") or st.st_dev != device:
+                        if reserved(entry.name) or st.st_dev != device:
                             continue
                         if stat.S_ISDIR(st.st_mode) or (
                             stat.S_ISREG(st.st_mode) and st.st_nlink == 1
@@ -212,7 +258,7 @@ class Filesystem:
 
     def create(self, tool):
         with self.parent(tool.root, tool.path) as (parent, name, _):
-            temporary = ".relay-write-" + secrets.token_hex(16)
+            temporary = ".peerrelay-create-" + secrets.token_hex(16)
             fd = os.open(
                 temporary,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -251,9 +297,7 @@ class Filesystem:
         except (ValidationError, Refused, OSError):
             return {"status": "denied"}
         # Thread + OS lock protect the journal/effect boundary across processes too.
-        with self.lock, open(self.journal.directory / "execution.lock", "a") as lock:
-            os.chmod(lock.name, 0o600)
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with self.execution_guard():
             previous = self.journal.begin(operation_id, payload, grants)
             if previous is not None:
                 return previous
@@ -267,6 +311,12 @@ class Filesystem:
                         "base_version": current["version"],
                         "content": tool.content,
                     }
+                    self.journal.proposal(
+                        operation_id,
+                        self.proposal_binding(operation_id, payload, grants),
+                        current["content"],
+                        result,
+                    )
                 else:
                     handler = {
                         "read": self.read,
@@ -285,65 +335,6 @@ class Filesystem:
             self.journal.finish(operation_id, result)
             return result
 
-    def replace(self, tool):
-        # Optimistic version check plus relay serialization; external editors must
-        # not write concurrently during the final check/atomic installation.
-        before = self.read(tool)
-        if before["version"] != tool.expected_version:
-            raise Changed()
-        with self.parent(tool.root, tool.path) as (parent, name, _):
-            original = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            temporary = ".relay-write-" + secrets.token_hex(16)
-            fd = os.open(
-                temporary,
-                os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
-                0o600,
-                dir_fd=parent,
-            )
-            try:
-                with os.fdopen(fd, "wb") as stream:
-                    stream.write(tool.content.encode())
-                    os.fchmod(stream.fileno(), stat.S_IMODE(original.st_mode) & 0o777)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                if self.read(tool)["version"] != tool.expected_version:
-                    raise Changed()
-                os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
-                os.fsync(parent)
-            finally:
-                try:
-                    os.unlink(temporary, dir_fd=parent)
-                except FileNotFoundError:
-                    pass
-
-    def apply(self, operation_id, tool, grants):
-        try:
-            _, _, mode = self.root(tool.root)
-            if (
-                tool.kind not in ("create_file", "propose_replace")
-                or mode != "rw"
-                or grants.get(tool.root) != "rw"
-            ):
-                raise Refused()
-        except (Refused, OSError):
-            return {"status": "denied"}
-        with self.lock, open(self.journal.directory / "execution.lock", "a") as lock:
-            os.chmod(lock.name, 0o600)
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            previous = self.journal.begin(operation_id, {"apply": tool.model_dump()}, grants)
-            if previous is not None:
-                return previous
-            try:
-                if tool.kind == "create_file":
-                    self.create(tool)
-                else:
-                    self.replace(tool)
-                result = {"status": "applied"}
-            except Changed:
-                result = {"status": "conflict"}
-            except (Refused, UnicodeError, FileNotFoundError, NotADirectoryError, PermissionError):
-                result = {"status": "denied"}
-            except OSError:
-                result = {"status": "unknown"}
-            self.journal.finish(operation_id, result)
-            return result
+    def purge(self, operation_ids):
+        with self.execution_guard():
+            self.journal.purge(operation_ids)

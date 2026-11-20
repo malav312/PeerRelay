@@ -22,7 +22,7 @@ def test_role_specific_mcp_tool_sets(tmp_path):
     root.mkdir()
     initialize(root, tmp_path / "pair", "127.0.0.1", 9443)
     for role, expected, forbidden in [
-        ("requester", "approve_change", "remote_read"),
+        ("requester", "task_status", "remote_read"),
         ("responder", "remote_read", "approve_change"),
     ]:
         client = Client(load(tmp_path / f"pair/{role}/client.json"))
@@ -30,6 +30,7 @@ def test_role_specific_mcp_tool_sets(tmp_path):
             names = {t.name for t in asyncio.run(build_server(client).list_tools())}
             assert expected in names
             assert forbidden not in names
+            assert not names & {"approve_change", "review_change", "apply", "reject"}
         finally:
             client.close()
 
@@ -43,7 +44,7 @@ def live_pair(tmp_path):
     root.mkdir()
     (root / "hello.txt").write_text("before\n")
     pair = tmp_path / "pair"
-    initialize(root, pair, "127.0.0.1", port)
+    initialize(root, pair, "127.0.0.1", port, grant="rw")
     process = subprocess.Popen(
         [sys.executable, "-m", "agent_relay.cli", "serve", "--config", str(pair / "server.json")],
         stdout=subprocess.DEVNULL,
@@ -150,25 +151,45 @@ def test_sdk_stdio_approved_write_then_responder_disconnect(live_pair):
                     )
                 )
                 assert complete["state"] == "succeeded"
-                review = decode(
-                    await a.call_tool(
-                        "review_change", {"mode_id": mode, "proposal_id": proposed["proposal_id"]}
+                # No model tool can inspect the diff or make a local decision.
+                assert (await a.call_tool("approve_change", {})).isError
+                assert (await a.call_tool("review_change", {})).isError
+                command = [
+                    sys.executable,
+                    "-m",
+                    "agent_relay.cli",
+                    "proposal",
+                    "--config",
+                    str(pair / "server.json"),
+                    "--json",
+                ]
+
+                async def local(*arguments):
+                    result = await asyncio.to_thread(
+                        subprocess.run, command + list(arguments), capture_output=True, text=True
                     )
-                )
+                    assert result.returncode == 0, result.stderr + result.stdout
+                    return json.loads(result.stdout)
+
+                review = await local("inspect", proposed["proposal_id"])
                 assert "+after" in review["diff"]
-                args = {
-                    "mode_id": mode,
-                    "proposal_id": proposed["proposal_id"],
-                    "digest": review["digest"],
-                    "confirmation": "not approved",
-                }
-                assert (await a.call_tool("approve_change", args)).isError
-                args["confirmation"] = f"APPLY {proposed['proposal_id']} {review['digest']}"
-                applied = decode(await a.call_tool("approve_change", args))
+                assert (root / "hello.txt").read_text() == "before\n"
+                applied = await local(
+                    "approve", proposed["proposal_id"], "--digest", review["digest"]
+                )
                 assert applied["status"] == "applied"
                 assert (root / "hello.txt").read_text() == "after\n"
-                assert decode(await a.call_tool("approve_change", args)) == applied
+                assert (
+                    await local("approve", proposed["proposal_id"], "--digest", review["digest"])
+                    == applied
+                )
                 assert "approve_change" not in {t.name for t in (await b.list_tools()).tools}
+                status = decode(
+                    await a.call_tool("task_status", {"mode_id": mode, "task_id": task})
+                )
+                assert status["proposals"] == [
+                    {"id": proposed["proposal_id"], "status": "proposed"}
+                ]
                 decode(await b.call_tool("disconnect", {"lease_id": lease}))
                 assert (
                     await a.call_tool(

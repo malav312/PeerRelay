@@ -1,6 +1,5 @@
 """Durable one-project relay. Roles, chat modes and responder leases are distinct."""
 
-import difflib
 import fcntl
 import json
 import os
@@ -35,8 +34,6 @@ REQUESTER = {
     "submit",
     "status",
     "result",
-    "review",
-    "apply",
     "exit_mode",
     "cancel",
     "usage",
@@ -53,7 +50,10 @@ RESPONDER = {
 
 
 class Relay:
-    def __init__(self, root, state, clock=time.time):
+    def __init__(self, root, state, clock=time.time, grant="rw"):
+        if grant not in ("ro", "rw"):
+            raise ValueError("Invalid project grant")
+        self.grant = grant
         self.clock = clock
         self.lock = threading.RLock()
         self.closed = False
@@ -74,7 +74,7 @@ class Relay:
             os.close(self.owner_lock)
             raise
         self.fs = Filesystem(
-            {"project": {"path": str(root), "mode": "rw"}}, str(self.state / "files")
+            {"project": {"path": str(root), "mode": grant}}, str(self.state / "files")
         )
         path = self.state / "relay.sqlite"
         if path.is_symlink():
@@ -263,10 +263,12 @@ class Relay:
 
     def _propose(self, lease_id, task_id, operation_id, path, content, base_version):
         task = self.working(lease_id, task_id)
+        if self.grant != "rw" or base_version == "absent":
+            raise Denied("Replacement proposals require an existing file and explicit rw grant")
         bounded(operation_id, 100)
         bounded(content, CONTENT_LIMIT, empty=True)
         tool = Tool(
-            kind="create_file" if base_version == "absent" else "propose_replace",
+            kind="propose_replace",
             root="project",
             path=path,
             content=content,
@@ -279,33 +281,26 @@ class Relay:
         if old:
             if old["hash"] != fingerprint:
                 raise Denied("Proposal ID reused with different content")
-            return {"proposal_id": old["id"], "digest": old["digest"], "status": old["status"]}
+            return {"proposal_id": old["id"], "status": old["status"]}
         if (
             self.db.execute("SELECT COUNT(*) FROM proposals WHERE task=?", (task_id,)).fetchone()[0]
             >= 32
         ):
             raise Denied("Proposal limit")
         self.count_tool(task)
-        # Check traversal and current identity now, again at review, and again at apply.
-        if base_version == "absent":
-            with self.fs.parent("project", path) as (parent, name, _):
-                try:
-                    os.stat(name, dir_fd=parent, follow_symlinks=False)
-                except FileNotFoundError:
-                    pass
-                else:
-                    raise Denied("Create target already exists")
-        else:
-            current = self.fs.read(tool)
-            if current["version"] != base_version:
-                raise Denied("Proposal base changed")
         proposal = new_id()
-        digest = payload_hash([proposal, task_id, lease_id, tool.model_dump()])
+        receipt = self.fs.execute(proposal, tool.model_dump(), {"project": self.grant})
+        if receipt["status"] != "proposed":
+            raise Denied("Proposal could not be captured; read the target again")
+        with self.fs.journal.connect() as journal:
+            digest = journal.execute(
+                "SELECT digest FROM local_proposals WHERE id=?", (proposal,)
+            ).fetchone()[0]
         self.db.execute(
             "INSERT INTO proposals(id,task,operation,hash,tool,digest) VALUES (?,?,?,?,?,?)",
             (proposal, task_id, operation_id, fingerprint, json.dumps(tool.model_dump()), digest),
         )
-        return {"proposal_id": proposal, "digest": digest, "status": "proposed"}
+        return {"proposal_id": proposal, "status": "proposed"}
 
     def _complete(self, lease_id, task_id, summary, answer=""):
         self.working(lease_id, task_id)
@@ -320,7 +315,7 @@ class Relay:
     def _status(self, mode_id, task_id):
         task = self.owned(mode_id, task_id)
         proposals = self.db.execute(
-            "SELECT id,digest,status FROM proposals WHERE task=?", (task_id,)
+            "SELECT id,status FROM proposals WHERE task=?", (task_id,)
         ).fetchall()
         return {
             "task_id": task_id,
@@ -337,62 +332,6 @@ class Relay:
     def _result(self, mode_id, task_id):
         task = self.owned(mode_id, task_id)
         return {"task_id": task_id, "summary": task["summary"], "answer": task["answer"]}
-
-    def proposal(self, mode_id, proposal_id):
-        proposal = self.db.execute("SELECT * FROM proposals WHERE id=?", (proposal_id,)).fetchone()
-        if not proposal:
-            raise Denied("Unknown proposal")
-        task = self.owned(mode_id, proposal["task"])
-        return proposal, task, Tool.model_validate_json(proposal["tool"])
-
-    def _review(self, mode_id, proposal_id, offset=0):
-        proposal, task, tool = self.proposal(mode_id, proposal_id)
-        if type(offset) is not int or offset < 0:
-            raise Denied("Invalid diff offset")
-        if tool.expected_version == "absent":
-            base = ""
-        else:
-            current = self.fs.read(tool)
-            if current["version"] != tool.expected_version:
-                raise Denied("Proposal base changed; request a fresh proposal")
-            base = current["content"]
-        diff = "".join(
-            line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
-            for line in difflib.unified_diff(
-                base.splitlines(keepends=True),
-                tool.content.splitlines(keepends=True),
-                fromfile=tool.path,
-                tofile=tool.path,
-            )
-        )
-        if offset > len(diff):
-            raise Denied("Invalid diff offset")
-        return {
-            "proposal_id": proposal_id,
-            "path": tool.path,
-            "digest": proposal["digest"],
-            "base_version": tool.expected_version,
-            "diff": diff[offset : offset + 16000],
-            "truncated": len(diff) > offset + 16000,
-            "next_offset": offset + 16000 if len(diff) > offset + 16000 else None,
-            "status": proposal["status"],
-        }
-
-    def _apply(self, mode_id, proposal_id, digest):
-        proposal, task, tool = self.proposal(mode_id, proposal_id)
-        if digest != proposal["digest"]:
-            raise Denied("Approval digest mismatch")
-        self.mode(mode_id)
-        if proposal["status"] in ("applied", "unknown", "conflict", "denied"):
-            return {"proposal_id": proposal_id, "status": proposal["status"]}
-        self.lease(task["lease"])
-        if task["state"] not in ("running", "succeeded"):
-            raise Denied("Task no longer permits changes")
-        receipt = self.fs.apply(proposal_id, tool, {"project": "rw"})
-        self.db.execute(
-            "UPDATE proposals SET status=? WHERE id=?", (receipt["status"], proposal_id)
-        )
-        return {"proposal_id": proposal_id, **receipt}
 
     def _cancel(self, mode_id, task_id):
         self.owned(mode_id, task_id)

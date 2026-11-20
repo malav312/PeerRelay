@@ -2,7 +2,6 @@ import json
 
 import pytest
 
-from agent_relay.schemas import CONTENT_LIMIT
 from agent_relay.service import Denied, Relay
 
 
@@ -67,12 +66,8 @@ def test_full_flow_compact_answer_and_explicit_apply(relay):
     assert status["state"] == "succeeded" and status["summary"] == "Ready to review"
     assert len(json.dumps(status)) < 2500
     assert "answer" not in status and "content" not in json.dumps(status)
-    review = service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})
-    assert "-before" in review["diff"] and "+after" in review["diff"]
-    args = {"mode_id": mode, "proposal_id": p["proposal_id"], "digest": review["digest"]}
-    assert service.call("requester", "apply", args)["status"] == "applied"
-    assert service.call("requester", "apply", args)["status"] == "applied"
-    assert (root / "hello.txt").read_text() == "after"
+    assert status["proposals"] == [{"id": p["proposal_id"], "status": "proposed"}]
+    assert (root / "hello.txt").read_text() == "before"
     usage = service.call("requester", "usage", {"mode_id": mode})
     assert usage["requester_model_tokens"] is None
     assert usage["relay_model_calls"] == 0
@@ -87,7 +82,7 @@ def test_roles_modes_and_digests_cannot_be_confused(relay):
         (
             "responder",
             "apply",
-            {"mode_id": mode, "proposal_id": p["proposal_id"], "digest": p["digest"]},
+            {"mode_id": mode, "proposal_id": p["proposal_id"], "digest": "not-human-consent"},
         ),
         ("requester", "status", {"mode_id": other, "task_id": task}),
         (
@@ -140,7 +135,7 @@ def test_disconnect_revokes_tools_and_proposals(relay, disconnect):
         service.call(
             "requester",
             "apply",
-            {"mode_id": mode, "proposal_id": p["proposal_id"], "digest": p["digest"]},
+            {"mode_id": mode, "proposal_id": p["proposal_id"], "digest": "not-human-consent"},
         )
     assert (root / "hello.txt").read_text() == "before"
 
@@ -215,73 +210,3 @@ def test_path_escape_and_limits(relay):
             "remote_tool",
             {"lease_id": lease, "task_id": task, "kind": "create_file", "path": "bad"},
         )
-
-
-def test_review_pages_and_base_conflict(relay):
-    service, root, _ = relay
-    mode, lease, task = setup(service)
-    read = service.call(
-        "responder",
-        "remote_tool",
-        {"lease_id": lease, "task_id": task, "kind": "read", "path": "hello.txt"},
-    )
-    p = service.call(
-        "responder",
-        "propose",
-        {
-            "lease_id": lease,
-            "task_id": task,
-            "operation_id": "big",
-            "path": "hello.txt",
-            "content": "new\n" * 6000,
-            "base_version": read["version"],
-        },
-    )
-    first = service.call(
-        "requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"], "offset": 0}
-    )
-    assert first["truncated"] and first["next_offset"] == 16000
-    second = service.call(
-        "requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"], "offset": 16000}
-    )
-    assert second["diff"] and not second["truncated"]
-    (root / "hello.txt").write_text("edited locally")
-    with pytest.raises(Denied):
-        service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})
-
-
-def test_review_marks_missing_final_newlines(relay):
-    service, _, _ = relay
-    mode, lease, task = setup(service)
-    p = propose(service, lease, task)
-    review = service.call("requester", "review", {"mode_id": mode, "proposal_id": p["proposal_id"]})
-    assert "-before\n\\ No newline at end of file\n" in review["diff"]
-    assert "+after\n\\ No newline at end of file\n" in review["diff"]
-
-
-def test_review_accepts_its_advertised_large_diff_offset(relay):
-    service, root, _ = relay
-    mode, lease, task = setup(service)
-    (root / "hello.txt").write_text("a\n" * (CONTENT_LIMIT // 2))
-    read = service.call(
-        "responder",
-        "remote_tool",
-        {"lease_id": lease, "task_id": task, "kind": "read", "path": "hello.txt"},
-    )
-    p = service.call(
-        "responder",
-        "propose",
-        {
-            "lease_id": lease,
-            "task_id": task,
-            "operation_id": "max-diff",
-            "path": "hello.txt",
-            "content": "b\n" * (CONTENT_LIMIT // 2),
-            "base_version": read["version"],
-        },
-    )
-    args = {"mode_id": mode, "proposal_id": p["proposal_id"]}
-    page = service.call("requester", "review", dict(args, offset=1040000))
-    assert page["next_offset"] > 2 * CONTENT_LIMIT
-    following = service.call("requester", "review", dict(args, offset=page["next_offset"]))
-    assert following["diff"]

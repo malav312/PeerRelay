@@ -1,4 +1,8 @@
-# Skill behavior checks
+# Historical skill behavior checks
+
+These probes predate the local-human approval adaptation. The old requester
+approval instructions are superseded: current skills must never generate or run
+approval commands. These historical probes do not validate that changed behavior.
 
 These are fresh-agent textual simulations, not installed Codex/Claude acceptance
 or token benchmarks. No simulation edited a repository or invoked a provider.

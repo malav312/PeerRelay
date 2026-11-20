@@ -22,7 +22,9 @@ def write_private(path, value):
         os.fsync(stream.fileno())
 
 
-def initialize(root, directory, host, port):
+def initialize(root, directory, host, port, grant="ro"):
+    if grant not in ("ro", "rw"):
+        raise ValueError("Invalid project grant")
     root = Path(root).resolve(strict=True)
     directory = Path(directory).absolute()
     if (
@@ -89,6 +91,7 @@ def initialize(root, directory, host, port):
         json.dumps(
             {
                 "root": str(root),
+                "grant": grant,
                 "state_dir": "state",
                 "host": host,
                 "port": port,

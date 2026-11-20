@@ -6,7 +6,7 @@ substantive reasoning. No provider credentials are copied or read. Upstream is n
 a dependency, and running upstream services are unaffected.
 
 This first version supports scoped text reads, directory listing, literal search,
-proposed file creation/replacement, and A-approved application. The write path has
+replacement proposals, and human-operated local application. The write path has
 been exercised through two real stdio MCP processes and HTTPS. Native Codex/Claude
 mode persistence and actual requester token savings still need live acceptance.
 
@@ -15,8 +15,9 @@ For step-by-step installation, follow the [two-laptop setup guide](docs/setup.md
 ## What each side does
 
 - A enables requester mode once per chat. New tasks and follow-ups are forwarded
-  unchanged. A receives a short receipt, asks for status when wanted, and reviews
-  proposed changes. Full reports are fetched only on request.
+  unchanged. A receives a short receipt and asks for status when wanted. Proposed
+  changes are inspected and approved in a local terminal outside the model context.
+  Full reports are fetched only on request.
 - B enables response mode, waits for work, uses remote filesystem tools, proposes
   changes and returns a brief summary. B can disconnect at any time.
 - Transport, polling inside a wait, and heartbeat are ordinary code with no model
@@ -47,11 +48,12 @@ outside the registered project. Choose A's reachable LAN IP, not the example IP.
 .venv/bin/peer-relay init \
   --project /absolute/path/to/project \
   --pair-dir /absolute/path/to/private-peerrelay-pair \
-  --host 192.168.1.100 --port 9443
+  --host 192.168.1.100 --port 9443 --grant rw
 .venv/bin/peer-relay serve \
   --config /absolute/path/to/private-peerrelay-pair/server.json
 ```
 
+New pairs default to `ro`; `--grant rw` explicitly permits replacement proposals.
 Keep that server running. `init` creates separate requester/responder credentials
 and a private TLS certificate valid for 30 days. Transfer only the generated
 `responder/` directory to B through a private channel. It contains `client.json`,
@@ -107,19 +109,29 @@ that client's prompt browser supports them. Do not enable response mode implicit
 
 1. On B activate response mode. On A activate requester mode.
 2. Ask A: "Read hello.txt and propose replacing its contents with 'hello from B'."
-3. The file must remain unchanged while the proposal is pending.
-4. Ask A to show the proposal. Review every diff page and explicitly approve the
-   identified file. The requester tool takes the proposal ID, digest and an exact
-   confirmation string; keep native client approval enabled for `approve_change`.
-5. Verify the file changed. Repeating the same approval returns its receipt without
-   writing again. A local edit before apply produces a conflict.
-6. Tell B to disconnect. New tasks and remote tools must fail; no local fallback.
+3. A returns a proposal ID; the file remains unchanged.
+4. In your own local terminal, inspect the proposal with the CLI below. Review its
+   exact escaped bytes/diff, root identity, original grants and baseline hash.
+5. Personally approve its exact inspected digest. Do not ask Codex/Claude to run
+   the approval command or treat a task prompt as approval.
+6. Verify the file changed. Repeating that decision returns the local record
+   without another write; the remote operation receipt remains `proposed`.
+7. Tell B to disconnect. New tasks, remote tools and pending local applies fail.
 
-Only the requester role can apply. A's credential can authorize writes, so the
-MCP approval string is a confirmation guard, not cryptographic proof that a human
-clicked a button. Do not allowlist approval for unattended use. B's text or project
-files cannot supply user approval. Unknown writes require local inspection; never
-create a new operation ID to blindly retry them.
+```sh
+.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json inspect PROPOSAL_ID
+.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json approve PROPOSAL_ID --digest INSPECTED_DIGEST
+.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json reject PROPOSAL_ID --digest INSPECTED_DIGEST
+.venv/bin/peer-relay proposal --config /absolute/path/to/pair/server.json status PROPOSAL_ID
+```
+
+These are direct human terminal actions, with no model or gateway calls. Neither
+MCP role nor the HTTPS API exposes review/apply/approve/reject. Native host shell
+access is not sandboxed by a skill: the human must use this flow themselves.
+Local outcomes are pending/applied/rejected/stale/uncertain; no remote application
+status endpoint is provided. Stale proposals need a fresh read and proposal;
+uncertain applications require human reconciliation and must never be replayed
+under a new ID automatically. See [local approval and upgrade](docs/local-approval.md).
 
 ## Disconnect and recovery
 
@@ -139,7 +151,7 @@ inspectable. Keep the durable journals for replay protection.
 
 One paired responder and one project; 32 pending tasks, 128 remote tool calls per
 task, 32 proposals per task, 512 KiB NUL-free UTF-8 files, and 32,768-character full answers.
-Each file is applied independently. No shell/tests, deletion, renaming, binary
+Each existing file is applied independently. No creation, shell/tests, deletion, renaming, binary
 editing, automatic dependency installation, or multi-file atomic transaction.
 Symlinks, hardlinks, path escapes, and mount crossings are refused. The project
 grant includes its regular files; it is not a secret-file classifier.
@@ -147,6 +159,8 @@ grant includes its regular files; it is not a secret-file classifier.
 Version checks preserve detected local edits. External editors do not share the
 relay's lock, so avoid editing a file during apply: ordinary filesystem rename
 cannot atomically compare-and-swap against arbitrary concurrent external writers.
+Replacement preserves POSIX permission bits but not inode/timestamps, group ownership,
+ACLs, extended attributes, resource forks or filesystem flags.
 Private state contains task text, results and journaled file contents. This first
 version has no automatic retention cleanup; protect that directory and backups.
 

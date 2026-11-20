@@ -23,7 +23,7 @@ A runs an HTTPS relay and filesystem service for one registered project. Two
 separate private bearer credentials authorize requester and responder roles.
 B connects over HTTPS with a pinned CA; local MCP processes speak stdio to each
 client. No provider tokens are read. B's existing agent receives a task via MCP,
-reads/lists/searches the remote project, proposes creates/replacements, and
+reads/lists/searches the remote project, proposes replacements of existing files, and
 returns a concise summary plus an optional full answer. The transport is ordinary
 code and performs no model calls. Native client token usage remains unknown
 unless measured externally; counters distinguish MCP calls from model tokens.
@@ -36,22 +36,31 @@ refused. Completed results and proposals remain inspectable; applying proposals
 requires the same live responder lease, so disconnect revokes unapplied changes.
 Reconnect creates a new lease and never resumes interrupted work automatically.
 
-A's tools expose only compact status by default; full results and proposal diffs
-are explicitly fetched. B gets the latest task plus bounded recent context for
+A's tools expose compact status; full answers are fetched only on request. Proposal
+diffs and human decisions stay in the local CLI outside model context. B gets the latest task plus bounded recent context for
 that requester chat. All file tools stay scoped to the claimed task/root.
 
-## Writes
-B can only propose; A explicitly approves an identified proposal and its digest.
-Each proposal binds task, lease, relative path, base version, new content and hash.
-Creates require absence. Replacements require unchanged content and identity.
-Apply uses a private journal, a process lock, safe descriptor-relative traversal,
-symlink/hardlink refusal, a synced temporary file, and atomic installation.
-Repeated apply returns the stored receipt; interrupted apply becomes unknown and
-is never automatically retried. Conflicts preserve the current file. Each file
-is independently approved; no multi-file transaction, shell, deletion, rename,
-binary edit, or test execution in v1. External editors do not participate in the
-relay lock: avoid editing during apply; optimistic checks cannot provide a
-filesystem-wide compare-and-swap against uncooperative writers.
+## Writes (updated by the approved local-human plan)
+B can only propose replacements under an explicit rw grant. New pairs default ro;
+legacy configurations without the grant field preserve their previous rw behavior.
+No creation, model-callable decision tool, remote diff or application-status route.
+A personally inspects exact bytes, target/version, root identity, original grants
+and baseline hash, then supplies the inspected digest to the offline CLI.
+The foundation is ported from tested upstream commit 6234675 without runtime dependency.
+
+Capture, local decisions and purge share the stable execution guard. The additive
+journal separates local pending/applied/rejected/stale/uncertain records from
+immutable remote proposed receipts. Intent precedes effects; uncertainty is never
+replayed or inferred successful from matching bytes. Local apply additionally
+serializes requester mode/task and responder lease checks with disconnect/cancel.
+Legacy PeerRelay proposals without captured bindings stay preserved but require
+fresh proposals. Existing credentials, config, roots and journals are not rewritten.
+
+Each file is independently approved; no multi-file transaction, shell, deletion,
+rename, binary edit, or test execution. Preserve permission bits; other metadata
+is not preserved. External editors do not participate in the relay lock; avoid
+editing during apply. Normal POSIX rename cannot provide compare-and-swap against
+uncooperative writers. Skills cannot hard-disable a native client's shell access.
 
 ## Packaging and verification
 Standalone Python package, SQLite durability, FastAPI/HTTPS, official MCP Python
