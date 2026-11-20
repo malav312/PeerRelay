@@ -35,5 +35,8 @@ add a local relay adapter that serializes live task/lease checks with decisions.
   Remove old authority routes; capture proposed operations through the shared journal; add local CLI.
 - [x] Update real TLS/MCP test to propose remotely and approve through local subprocess; update
   skills and docs to reference local inspection without model-issued approval commands.
-- [ ] Full suite, lint, fresh independent review; fix material findings with regression tests.
-  Commit, fast-forward the standalone checkout and push to the verified private remote.
+- [x] Full suite, lint, fresh independent review; fix material findings with regression tests.
+  Commit and fast-forward the standalone checkout; verify the integrated result.
+
+Delivery: publish the completed branch to the verified private remote under the existing
+user authorization. No live rollout is part of this implementation.

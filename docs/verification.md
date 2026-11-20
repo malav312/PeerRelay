@@ -1,6 +1,8 @@
 # Local-human approval verification — November 19, 2026
 
-Current adaptation suite: **89 passed** in the isolated standalone checkout.
+Current adaptation suite: **89 passed** in both the isolated checkout and
+`/path/to/PeerRelay` after fast-forward integration.
+Local approval CLI help also passed in the permanent checkout.
 Ruff lint/format and Git whitespace checks pass. One upstream Starlette/httpx
 test-client deprecation warning remains. Independent review found two Important
 issues and no Critical or Minor issues. Both were fixed in one pass, with each

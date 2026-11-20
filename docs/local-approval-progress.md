@@ -26,3 +26,7 @@ Both new regressions failed before correction and then passed. Full suite: 89 pa
 No deferred review findings or second review. Reviewer declined native-agent compliance,
 token savings, physical secure erasure and live two-client acceptance; these remain
 outside fixture verification. No deployment or live acceptance claimed.
+
+Delivery verification: permanent checkout fast-forwarded through 45440cd; fresh full
+suite 89 passed, Ruff lint/format, whitespace and local approval CLI help passed.
+Private GitHub visibility verified before publication. No paired data/config was changed.
