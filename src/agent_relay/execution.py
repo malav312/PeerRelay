@@ -66,26 +66,30 @@ class Executor:
         if path.is_symlink():
             raise ValueError("Execution journal cannot be symlinked")
         self.db = sqlite3.connect(path, check_same_thread=False)
-        os.chmod(path, 0o600)
-        self.db.row_factory = sqlite3.Row
-        self.lock = threading.RLock()
-        self.authorize = authorize
-        self.live = {}
-        self.closed = False
-        self.db.executescript("""
-        PRAGMA journal_mode=WAL;
-        PRAGMA synchronous=FULL;
-        CREATE TABLE IF NOT EXISTS commands(
-          id TEXT PRIMARY KEY, task TEXT, lease TEXT, operation TEXT, hash TEXT,
-          spec TEXT, state TEXT, output BLOB DEFAULT X'', truncated INTEGER DEFAULT 0,
-          exit_code INTEGER, detail TEXT DEFAULT '', UNIQUE(task,operation));
-        CREATE TABLE IF NOT EXISTS command_inputs(
-          command TEXT, operation TEXT, hash TEXT, result TEXT,
-          PRIMARY KEY(command,operation));
-        UPDATE commands SET state='uncertain',detail='Server restarted; never replay'
-          WHERE state IN ('queued','starting','running');
-        """)
-        self.db.commit()
+        try:
+            os.chmod(path, 0o600)
+            self.db.row_factory = sqlite3.Row
+            self.lock = threading.RLock()
+            self.authorize = authorize
+            self.live = {}
+            self.closed = False
+            self.db.executescript("""
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS commands(
+              id TEXT PRIMARY KEY, task TEXT, lease TEXT, operation TEXT, hash TEXT,
+              spec TEXT, state TEXT, output BLOB DEFAULT X'', truncated INTEGER DEFAULT 0,
+              exit_code INTEGER, detail TEXT DEFAULT '', UNIQUE(task,operation));
+            CREATE TABLE IF NOT EXISTS command_inputs(
+              command TEXT, operation TEXT, hash TEXT, result TEXT,
+              PRIMARY KEY(command,operation));
+            UPDATE commands SET state='uncertain',detail='Server restarted; never replay'
+              WHERE state IN ('queued','starting','running');
+            """)
+            self.db.commit()
+        except BaseException:
+            self.db.close()
+            raise
 
     def submit(self, task, lease, operation, spec):
         fingerprint = payload_hash(spec)
@@ -120,7 +124,12 @@ class Executor:
         control["thread"] = thread
         with self.lock:
             self.live[ident] = control
-        thread.start()
+        try:
+            thread.start()
+        except RuntimeError:
+            with self.lock:
+                self.live.pop(ident, None)
+                self._update(ident, state="refused", detail="Command worker could not start")
         return {"command_id": ident}
 
     def _update(self, ident, **values):
@@ -308,12 +317,13 @@ class Executor:
                 )
                 if eof and written == len(raw):
                     if control["terminal"]:
-                        os.write(control["input"], b"\x04")
+                        if os.write(control["input"], b"\x04") != 1:
+                            result["state"] = "uncertain"
                     else:
                         control["process"].stdin.close()
                         control["input"] = None
             except (OSError, ValueError):
-                pass  # The durable uncertain receipt prevents replay after partial delivery.
+                result["state"] = "uncertain"  # Never replay potentially delivered input.
             with self.db:
                 self.db.execute(
                     "UPDATE command_inputs SET result=? WHERE command=? AND operation=?",

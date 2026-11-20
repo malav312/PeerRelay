@@ -27,11 +27,11 @@ Files: new execution.py, tests/test_execution.py; service.py, setup.py, cli.py, 
 Interfaces: execute(lease_id,task_id,operation_id,command,cwd='.',timeout=300,terminal=False)
 returns command_id; command_status(...,command_id,offset=0) returns state/output/next_offset;
 command_input(...,operation_id,data,eof=False); command_cancel(...).
-- [ ] Write failing real subprocess tests: explicit grants, same-worktree operations,
+- [x] Write failing real subprocess tests: explicit grants, same-worktree operations,
   output/input/PTY, nonzero status, timeout, revocation, root/branch, restart/retry.
-- [ ] Run pytest tests/test_execution.py and observe missing feature failures.
-- [ ] Implement execution journal/process lifecycle and role/session admission.
-- [ ] Run targeted and full suite, lint, commit.
+- [x] Run pytest tests/test_execution.py and observe missing feature failures.
+- [x] Implement execution journal/process lifecycle and role/session admission.
+- [x] Run targeted and full suite, lint, commit.
 
 ### Task 2: Durable questions and native MCP routing
 Files: new questions.py, tests/test_questions.py; client.py, mcp_server.py, service.py;
@@ -39,14 +39,14 @@ new tests/test_execution_mcp.py.
 Interfaces: ask_question(lease_id,task_id,operation_id,message,choices=[]),
 question_status(lease_id,task_id,question_id), answer_question(mode_id,task_id,
 question_id,action,answer=''); wait_for_update(mode_id,task_id,seconds=50,ctx).
-- [ ] Write failing tests for ownership/replay/revocation, pending-effect denial,
+- [x] Write failing tests for ownership/replay/revocation, pending-effect denial,
   actual HTTPS execution and MCP elicitation/fallback/cancellation.
-- [ ] Implement durable question flow and MCP tools; polling stays ordinary code.
-- [ ] Run targeted and full suite, lint, commit.
+- [x] Implement durable question flow and MCP tools; polling stays ordinary code.
+- [x] Run targeted and full suite, lint, commit.
 
 ### Task 3: Documentation and final delivery
 Files: README/setup/execution guide, role skill copies, verification/progress.
-- [ ] Update setup and modes for exec, session authorization, commands/questions,
+- [x] Update setup and modes for exec, session authorization, commands/questions,
   trusted-host limits, branch behavior and client fallback.
-- [ ] Full suite and fresh independent whole-branch review; one regression-first fix pass.
+- [x] Full suite and fresh independent whole-branch review; one regression-first fix pass.
 - [ ] Commit, integrate in standalone checkout, verify private remote and push.

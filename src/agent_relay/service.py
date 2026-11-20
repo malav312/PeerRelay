@@ -84,40 +84,57 @@ class Relay:
         except BaseException:
             os.close(self.owner_lock)
             raise
-        self.fs = Filesystem(
-            {"project": {"path": str(root), "mode": "rw" if grant == "exec" else grant}},
-            str(self.state / "files"),
-        )
-        path = self.state / "relay.sqlite"
-        if path.is_symlink():
-            self.fs.close()
-            os.close(self.owner_lock)
-            raise ValueError("State database cannot be a symlink")
-        self.db = sqlite3.connect(path, check_same_thread=False)
-        os.chmod(path, 0o600)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript("""
-        PRAGMA journal_mode=WAL;
-        PRAGMA synchronous=FULL;
-        CREATE TABLE IF NOT EXISTS modes(id TEXT PRIMARY KEY,active INTEGER);
-        CREATE TABLE IF NOT EXISTS lease(id TEXT PRIMARY KEY,expires REAL,active INTEGER);
-        CREATE TABLE IF NOT EXISTS tasks(
-          id TEXT PRIMARY KEY,mode TEXT,operation TEXT,hash TEXT,prompt TEXT,state TEXT,
-          lease TEXT,summary TEXT DEFAULT '',answer TEXT DEFAULT '',calls INTEGER DEFAULT 0,
-          created REAL, UNIQUE(mode,operation));
-        CREATE TABLE IF NOT EXISTS proposals(
-          id TEXT PRIMARY KEY,task TEXT,operation TEXT,hash TEXT,tool TEXT,digest TEXT,
-          status TEXT DEFAULT 'proposed',UNIQUE(task,operation));
-        CREATE TABLE IF NOT EXISTS execution_modes(mode TEXT PRIMARY KEY,binding TEXT);
-        CREATE TABLE IF NOT EXISTS counters(role TEXT PRIMARY KEY,calls INTEGER);
-        """)
-        # A server restart never resurrects an authority lease.
-        self.db.execute("UPDATE lease SET active=0")
-        self.db.execute("UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')")
-        self.db.commit()
-        self.executor = Executor(self.state, self.execution_authority)
-        self.questions = Questions(self.db)
-        self.db.commit()
+        self.fs = self.db = self.executor = None
+        try:
+            self.fs = Filesystem(
+                {"project": {"path": str(root), "mode": "rw" if grant == "exec" else grant}},
+                str(self.state / "files"),
+            )
+            path = self.state / "relay.sqlite"
+            if path.is_symlink():
+                raise ValueError("State database cannot be a symlink")
+            self.db = sqlite3.connect(path, check_same_thread=False)
+            os.chmod(path, 0o600)
+            self.db.row_factory = sqlite3.Row
+            self.db.executescript("""
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS modes(id TEXT PRIMARY KEY,active INTEGER);
+            CREATE TABLE IF NOT EXISTS lease(id TEXT PRIMARY KEY,expires REAL,active INTEGER);
+            CREATE TABLE IF NOT EXISTS tasks(
+              id TEXT PRIMARY KEY,mode TEXT,operation TEXT,hash TEXT,prompt TEXT,state TEXT,
+              lease TEXT,summary TEXT DEFAULT '',answer TEXT DEFAULT '',calls INTEGER DEFAULT 0,
+              created REAL, UNIQUE(mode,operation));
+            CREATE TABLE IF NOT EXISTS proposals(
+              id TEXT PRIMARY KEY,task TEXT,operation TEXT,hash TEXT,tool TEXT,digest TEXT,
+              status TEXT DEFAULT 'proposed',UNIQUE(task,operation));
+            CREATE TABLE IF NOT EXISTS execution_modes(mode TEXT PRIMARY KEY,binding TEXT);
+            CREATE TABLE IF NOT EXISTS counters(role TEXT PRIMARY KEY,calls INTEGER);
+            """)
+            # A server restart never resurrects an authority lease.
+            self.db.execute("UPDATE lease SET active=0")
+            self.db.execute(
+                "UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')"
+            )
+            self.db.commit()
+            self.executor = Executor(self.state, self.execution_authority)
+            self.questions = Questions(self.db)
+            self.db.commit()
+        except BaseException:
+            try:
+                if self.executor is not None:
+                    self.executor.close()
+            finally:
+                try:
+                    if self.db is not None:
+                        self.db.close()
+                finally:
+                    try:
+                        if self.fs is not None:
+                            self.fs.close()
+                    finally:
+                        os.close(self.owner_lock)
+            raise
 
     def close(self):
         with self.lock:
@@ -451,6 +468,8 @@ class Relay:
                 raise Denied(
                     "Execution not authorized or workspace/branch changed; activate a new mode"
                 )
+            # Git workspace validation can outlast the lease while holding this lock.
+            self.working(lease_id, task_id)
             yield task
 
     def _execute(

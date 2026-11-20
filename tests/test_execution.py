@@ -355,3 +355,145 @@ def test_transient_group_signal_failure_does_not_lose_cancellation(session, monk
         dict(lease_id=lease, task_id=ident, command_id=job["command_id"]),
     )
     assert finish(relay, lease, ident, job)["state"] == "cancelled"
+
+
+def test_worker_start_failure_is_terminal_and_releases_relay_on_close(session, monkeypatch):
+    import threading
+
+    relay, root, _, lease, ident = session
+    original = threading.Thread.start
+
+    def cannot_start(self):
+        raise RuntimeError("Cannot create another thread")
+
+    monkeypatch.setattr(threading.Thread, "start", cannot_start)
+    job = run(relay, lease, ident, "touch forbidden")
+    assert status(relay, lease, ident, job)["state"] == "refused"
+    assert run(relay, lease, ident, "touch forbidden") == job
+    assert not (root / "forbidden").exists()
+    monkeypatch.setattr(threading.Thread, "start", original)
+    relay.close()
+    restarted = Relay(root, relay.state, grant="exec")
+    restarted.close()
+
+
+def test_failed_executor_initialization_releases_owner_lock(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    state = tmp_path / "state"
+    state.mkdir()
+    target = tmp_path / "other"
+    target.write_text("untouched")
+    (state / "execution.sqlite").symlink_to(target)
+    with pytest.raises(ValueError, match="symlink"):
+        Relay(root, state, grant="exec")
+    (state / "execution.sqlite").unlink()
+    relay = Relay(root, state, grant="exec")
+    relay.close()
+    assert target.read_text() == "untouched"
+
+
+@pytest.mark.parametrize("data", ["", "payload\n"])
+def test_pty_eof_failure_is_not_reported_as_sent(session, monkeypatch, data):
+    import os
+
+    relay, _, _, lease, ident = session
+    job = run(relay, lease, ident, "printf ready; cat", terminal=True)
+    for _ in range(100):
+        if "ready" in status(relay, lease, ident, job)["output"]:
+            break
+        time.sleep(0.02)
+    write = os.write
+
+    def fail_eof(fd, data):
+        if data == b"\x04":
+            raise BlockingIOError("PTY input full")
+        return write(fd, data)
+
+    monkeypatch.setattr(os, "write", fail_eof)
+    args = dict(
+        lease_id=lease,
+        task_id=ident,
+        command_id=job["command_id"],
+        operation_id="eof",
+        data=data,
+        eof=True,
+    )
+    result = relay.call("responder", "command_input", args)
+    assert result["state"] == "uncertain"
+    assert result["bytes_written"] == len(data.encode())
+    assert relay.call("responder", "command_input", args) == result
+    monkeypatch.setattr(os, "write", write)
+    relay.call(
+        "responder",
+        "command_cancel",
+        dict(lease_id=lease, task_id=ident, command_id=job["command_id"]),
+    )
+    assert finish(relay, lease, ident, job)["state"] == "cancelled"
+
+
+def test_lease_expiring_during_worker_workspace_check_refuses_spawn(session, monkeypatch):
+    from agent_relay import service
+
+    relay, root, _, lease, ident = session
+    clock = [time.time()]
+    relay.clock = lambda: clock[0]
+    original = service.workspace
+    checks = [0]
+
+    def slow_workspace(path):
+        binding = original(path)
+        checks[0] += 1
+        if checks[0] == 2:  # After admission, during the worker's pre-spawn validation.
+            clock[0] += 61
+        return binding
+
+    monkeypatch.setattr(service, "workspace", slow_workspace)
+    job = run(relay, lease, ident, "touch after_expiry")
+    for _ in range(100):
+        result = relay.executor.status(job["command_id"])
+        if result["state"] not in ("queued", "starting", "running"):
+            break
+        time.sleep(0.02)
+    assert result["state"] == "refused"
+    assert not (root / "after_expiry").exists()
+
+
+def test_lease_expiring_during_input_validation_prevents_stdin(session, monkeypatch):
+    from agent_relay import service
+
+    relay, root, _, lease, ident = session
+    job = run(
+        relay,
+        lease,
+        ident,
+        python("print('ready',flush=True); x=input(); open('effect','w').write(x)"),
+    )
+    for _ in range(100):
+        if "ready" in status(relay, lease, ident, job)["output"]:
+            break
+        time.sleep(0.02)
+    clock = [time.time()]
+    relay.clock = lambda: clock[0]
+    original = service.workspace
+
+    def slow_workspace(path):
+        binding = original(path)
+        clock[0] += 61
+        return binding
+
+    monkeypatch.setattr(service, "workspace", slow_workspace)
+    with pytest.raises(Denied):
+        relay.call(
+            "responder",
+            "command_input",
+            dict(
+                lease_id=lease,
+                task_id=ident,
+                command_id=job["command_id"],
+                operation_id="input",
+                data="forbidden\n",
+            ),
+        )
+    relay.close()
+    assert not (root / "effect").exists()

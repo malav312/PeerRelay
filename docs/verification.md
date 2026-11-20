@@ -1,4 +1,41 @@
-# Local-human approval verification — November 19, 2026
+# Remote execution verification — November 20, 2026
+
+Current suite: **128 passed** in the isolated execution checkout. Ruff lint,
+formatting and Git whitespace checks pass; 10 setup shell examples parse and local
+links resolve. One upstream Starlette/httpx test-client deprecation warning remains.
+Independent whole-branch review completed at e71a367: three Important findings
+and one Minor finding. The startup resource leak was regraded Important because
+repairing configuration could not restart the relay in the same process. All four
+were fixed in one pass; no second independent review is implied.
+
+Regressions were observed failing before fixes for lease expiry during workspace
+validation, failed thread startup, PTY EOF delivery (empty/nonempty input), and
+constructor cleanup. A sixth test confirms input already rechecked expiry after
+workspace validation; it passed before the fixes and is coverage, not a RED claim.
+Failed worker startup now records a terminal refusal with a stable command ID;
+failed EOF retains known bytes written and reports uncertainty without replay;
+failed initialization releases acquired resources and its owner lock.
+
+The additional tests use actual local processes for automatic file creation,
+replacement, rename/deletion, shell exit codes, bounded logs, PTY/pipe input, EOF,
+concurrency, timeouts, cancellation, root/branch binding, task ownership, stable-ID
+replay and crash uncertainty. Existing 89 proposal/local-approval tests remain green.
+
+Question regressions cover acceptance/decline/cancel, ownership, duplicate/different
+replies, revocation/restart and pending execution denial. Four end-to-end tests run
+real HTTPS and two SDK MCP processes: remote commands change a disposable Alice
+project without manual approval, then native-protocol elicitation routes an accept,
+decline or cancel; a client without elicitation uses the chat-response tool fallback.
+These establish protocol behavior, not actual Codex/Claude product UI support.
+
+Five fresh-context probes per old/new skill variant are recorded in
+[skill evaluation](skill-evaluation.md). Native acceptance, model usage savings,
+idle-chat push and host-shell containment are not claimed. No live paired config,
+service, provider account or upstream code was changed.
+
+---
+
+# Local-human approval verification — November 19, 2026 (historical)
 
 Current adaptation suite: **89 passed** in both the isolated checkout and
 `/path/to/PeerRelay` after fast-forward integration.
