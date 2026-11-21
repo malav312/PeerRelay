@@ -1,3 +1,39 @@
+# Follow-through and security verification — November 21, 2026
+
+The full suite passed: **166 tests in 31.19 seconds**. Ruff lint, formatting
+and Git whitespace checks pass. One upstream Starlette/httpx deprecation warning
+remains. Verification ran in an isolated checkout; MCP SDK subprocess tests
+explicitly load that checkout's source rather than the installed editable package.
+
+Coverage includes mode/context reuse, idempotent submit-and-follow, sequential
+elicitation, deadlines and cancellation; authenticated body limits, filtered file
+access, credential-shaped answer refusal and interactive approval; execution
+backend binding, stopped-container preparation, launch-time authority revalidation,
+cleanup uncertainty and quarantine. Raw MCP stdio tests verify Claude channel
+capability advertisement, bounded notifications containing IDs rather than peer
+text, acknowledgement and duplicate suppression.
+
+Independent whole-change review identified backend binding, container admission,
+cleanup quarantine and stale runtime guidance issues. A second pass identified
+lease/workspace changes during container preparation. These were corrected, and
+the final reviewer verified the launch revalidation fix with all 13 backend tests
+passing and no remaining important findings within the review scope.
+
+**Limits:** Docker is unavailable on the test host, so container argument/lifecycle
+contracts and failure injection are verified, not execution against a real Docker
+daemon. Native Claude channel wake-up and Codex/Claude form rendering still need
+two-client acceptance. Updated skill guidance has not been newly pressure-tested
+or deployed to live clients. Requester token savings have not been measured.
+
+The prior responder session was disconnected. No live pairing configuration was
+changed and no automatic reconnection occurred. TTY confirmation is friction, not
+proof of human presence; unrestricted host execution still exposes OS-user secrets.
+Automatic retention and in-place token rotation remain deferred, with operational
+tradeoffs documented in [security](security.md). Git history cleanup remains a
+separate TODO.
+
+---
+
 # Remote execution verification — November 20, 2026
 
 Current suite: **128 passed** in both the isolated execution checkout and

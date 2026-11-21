@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -44,7 +45,15 @@ def live_pair(tmp_path, request):
     root.mkdir()
     (root / "hello.txt").write_text("before\n")
     pair = tmp_path / "pair"
-    initialize(root, pair, "127.0.0.1", port, grant=getattr(request, "param", "rw"))
+    initialize(
+        root,
+        pair,
+        "127.0.0.1",
+        port,
+        grant=getattr(request, "param", "rw"),
+        execution_backend="host",
+        allow_host_credentials=True,
+    )
     process = subprocess.Popen(
         [sys.executable, "-m", "agent_relay.cli", "serve", "--config", str(pair / "server.json")],
         stdout=subprocess.DEVNULL,
@@ -58,7 +67,16 @@ def live_pair(tmp_path, request):
                 if process.poll() is not None:
                     pytest.fail("Relay startup failed: " + process.stderr.read().decode()[-2000:])
                 try:
-                    if check.get(f"https://127.0.0.1:{port}/healthz").status_code == 200:
+                    if (
+                        check.get(
+                            f"https://127.0.0.1:{port}/healthz",
+                            headers={
+                                "Authorization": "Bearer "
+                                + (pair / "requester/requester.token").read_text()
+                            },
+                        ).status_code
+                        == 200
+                    ):
                         break
                 except httpx.HTTPError:
                     pass
@@ -93,10 +111,12 @@ def test_sdk_stdio_approved_write_then_responder_disconnect(live_pair):
 
     async def run():
         aparams = StdioServerParameters(
+            env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
             command=sys.executable,
             args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / "requester/client.json")],
         )
         bparams = StdioServerParameters(
+            env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
             command=sys.executable,
             args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / "responder/client.json")],
         )
@@ -165,10 +185,20 @@ def test_sdk_stdio_approved_write_then_responder_disconnect(live_pair):
                 ]
 
                 async def local(*arguments):
-                    result = await asyncio.to_thread(
-                        subprocess.run, command + list(arguments), capture_output=True, text=True
-                    )
-                    assert result.returncode == 0, result.stderr + result.stdout
+                    if arguments[0] in ("approve", "reject"):
+                        from terminal_helpers import decision
+
+                        result = await asyncio.to_thread(
+                            decision, command + list(arguments), arguments[0], arguments[-1]
+                        )
+                    else:
+                        result = await asyncio.to_thread(
+                            subprocess.run,
+                            command + list(arguments),
+                            capture_output=True,
+                            text=True,
+                        )
+                    assert result.returncode == 0, result.stdout
                     return json.loads(result.stdout)
 
                 review = await local("inspect", proposed["proposal_id"])
@@ -212,6 +242,7 @@ def test_sdk_disconnect_interrupts_idle_wait(live_pair):
 
     async def run():
         params = StdioServerParameters(
+            env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
             command=sys.executable,
             args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / "responder/client.json")],
         )

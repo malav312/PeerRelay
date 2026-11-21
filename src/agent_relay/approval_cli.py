@@ -3,6 +3,7 @@
 import argparse
 import json
 import sqlite3
+import sys
 
 from .approvals import escaped
 from .client import load
@@ -27,6 +28,17 @@ def main(argv=None):
         if args.command in ("inspect", "status"):
             result = service.inspect(args.proposal_id)
         else:
+            if not sys.stdin.isatty() or not sys.stderr.isatty():
+                raise ValueError(
+                    "Decisions require an interactive terminal; this is not proof of a human"
+                )
+            review = service.inspect(args.proposal_id)
+            print("Review target:", escaped(review.get("path", "")), file=sys.stderr)
+            for warning in review.get("risk_warnings", []):
+                print("WARNING:", warning, file=sys.stderr)
+            print("Type " + args.command + " " + args.digest + " to confirm:", file=sys.stderr)
+            if sys.stdin.readline().strip() != args.command + " " + args.digest:
+                raise ValueError("Confirmation did not match; no decision recorded")
             result = service.decide(args.proposal_id, args.digest, args.command)
         if args.json:
             print(json.dumps(result, indent=2, ensure_ascii=True))
@@ -39,6 +51,8 @@ def main(argv=None):
                 print("Root identity (path/device/inode):", json.dumps(result["root_identity"]))
                 print("Original grants:", json.dumps(result["grants"], sort_keys=True))
                 print("Baseline hash (canonical JSON SHA-256):", result["base_sha256"])
+                for warning in result.get("risk_warnings", []):
+                    print("WARNING:", warning)
                 print("Target:", escaped(result["root"] + "/" + result["path"]))
                 print("Expected version:", result["expected_version"])
                 print("Target still matches:", result["current_matches"])

@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
+from .backends import backend
 from .schemas import payload_hash
 
 ACTIVE = ("queued", "starting", "running")
@@ -43,7 +44,20 @@ def workspace(root):
 
     def git(*args):
         return subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True, text=True, timeout=3, env=env
+            [
+                "git",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-C",
+                str(root),
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            env=env,
         )
 
     result = git("rev-parse", "--show-toplevel", "--absolute-git-dir")
@@ -61,7 +75,7 @@ def workspace(root):
 
 
 class Executor:
-    def __init__(self, state, authorize):
+    def __init__(self, state, authorize, root=None, execution_backend=None):
         path = Path(state) / "execution.sqlite"
         if path.is_symlink():
             raise ValueError("Execution journal cannot be symlinked")
@@ -73,9 +87,13 @@ class Executor:
             self.authorize = authorize
             self.live = {}
             self.closed = False
+            self.backend = backend(root, state, execution_backend)
             self.db.executescript("""
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS container_resources(
+              command TEXT PRIMARY KEY, name TEXT, removed INTEGER DEFAULT 0,
+              confirmed INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS commands(
               id TEXT PRIMARY KEY, task TEXT, lease TEXT, operation TEXT, hash TEXT,
               spec TEXT, state TEXT, output BLOB DEFAULT X'', truncated INTEGER DEFAULT 0,
@@ -87,8 +105,30 @@ class Executor:
               WHERE state IN ('queued','starting','running');
             """)
             self.db.commit()
+            if "confirmed" not in {
+                r[1] for r in self.db.execute("PRAGMA table_info(container_resources)")
+            }:
+                self.db.execute(
+                    "ALTER TABLE container_resources ADD COLUMN confirmed INTEGER DEFAULT 0"
+                )
+            pending = self.db.execute(
+                "SELECT command,name,confirmed FROM container_resources WHERE removed=0"
+            ).fetchall()
+            if pending and self.backend.name != "docker":
+                raise ValueError("Unremoved containers require the Docker backend before startup")
+            for row in pending:
+                if not self.backend.cleanup(row["name"], confirmed=bool(row["confirmed"])):
+                    raise ValueError(
+                        "Container cleanup could not be verified; restore Docker first"
+                    )
+                self.db.execute(
+                    "UPDATE container_resources SET removed=1 WHERE command=?", (row["command"],)
+                )
+            self.db.commit()
         except BaseException:
             self.db.close()
+            if hasattr(self, "backend"):
+                self.backend.close()
             raise
 
     def submit(self, task, lease, operation, spec):
@@ -170,6 +210,9 @@ class Executor:
 
     def _run(self, ident, task, lease, spec, control):
         process = None
+        container_name = "peerrelay-" + ident
+        container_started = False
+        container_confirmed = False
         master = slave = None
         selector = selectors.DefaultSelector()
         try:
@@ -182,16 +225,34 @@ class Executor:
                 self._update(ident, state="starting")  # Durable intent before any effect.
                 if spec["terminal"]:
                     master, slave = pty.openpty()
-                process = subprocess.Popen(
-                    ["/bin/sh", "-c", spec["command"]],
-                    cwd=spec["cwd"],
-                    env=environment(),
-                    stdin=slave if slave is not None else subprocess.PIPE,
-                    stdout=slave if slave is not None else subprocess.PIPE,
-                    stderr=slave if slave is not None else subprocess.STDOUT,
-                    start_new_session=True,
-                    bufsize=0,
-                )
+                if self.backend.name == "docker":
+                    with self.db:
+                        self.db.execute(
+                            "INSERT INTO container_resources(command,name) VALUES (?,?)",
+                            (ident, container_name),
+                        )
+                    container_started = True  # Durable before creating a STOPPED container.
+                    self.backend.prepare(container_name, spec)
+                    container_confirmed = True
+                    with self.db:
+                        self.db.execute(
+                            "UPDATE container_resources SET confirmed=1 WHERE command=?", (ident,)
+                        )
+                    if control["stop"] or self.closed:
+                        self._update(ident, state="cancelled")
+                        return
+                with self.authorize(lease, task):
+                    argv, directory, env = self.backend.launch(container_name, spec)
+                    process = subprocess.Popen(
+                        argv,
+                        cwd=directory,
+                        env=env,
+                        stdin=slave if slave is not None else subprocess.PIPE,
+                        stdout=slave if slave is not None else subprocess.PIPE,
+                        stderr=slave if slave is not None else subprocess.STDOUT,
+                        start_new_session=True,
+                        bufsize=0,
+                    )
                 control["process"] = process
                 fd = master if master is not None else process.stdout.fileno()
                 control["input"] = master if master is not None else process.stdin.fileno()
@@ -238,6 +299,14 @@ class Executor:
                         exited_at = time.monotonic()
                     elif time.monotonic() - exited_at > 1:
                         raise RuntimeError("Output stream stayed open after leader exit")
+            if container_started:
+                if not self.backend.cleanup(container_name, confirmed=container_confirmed):
+                    raise RuntimeError("Container removal could not be verified")
+                with self.lock, self.db:
+                    self.db.execute(
+                        "UPDATE container_resources SET removed=1 WHERE command=?", (ident,)
+                    )
+                container_started = False
             self._update(ident, state=control["stop"] or "exited", exit_code=process.returncode)
         except BaseException as error:
             try:
@@ -253,6 +322,18 @@ class Executor:
                 detail=type(error).__name__,
             )
         finally:
+            if container_started:
+                if self.backend.cleanup(container_name, confirmed=container_confirmed):
+                    with self.lock, self.db:
+                        self.db.execute(
+                            "UPDATE container_resources SET removed=1 WHERE command=?", (ident,)
+                        )
+                else:
+                    self._update(
+                        ident,
+                        state="uncertain",
+                        detail="Container cleanup unverified; restore Docker",
+                    )
             selector.close()
             with self.lock:
                 control["input"] = None
@@ -348,6 +429,16 @@ class Executor:
                 if row["task"] not in active_tasks:
                     self.cancel(row["id"])
 
+    def quarantined(self):
+        with self.lock:
+            return bool(
+                self.db.execute(
+                    "SELECT 1 FROM container_resources r LEFT JOIN commands c ON c.id=r.command "
+                    "WHERE r.removed=0 AND (c.id IS NULL OR c.state NOT IN "
+                    "('queued','starting','running'))"
+                ).fetchone()
+            )
+
     def summaries(self, task):
         with self.lock:
             return [
@@ -371,3 +462,5 @@ class Executor:
             if any(c["thread"].is_alive() for _, c in controls):
                 raise RuntimeError("Command workers did not stop")
             self.db.close()
+            if hasattr(self, "backend"):
+                self.backend.close()

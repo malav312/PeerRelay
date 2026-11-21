@@ -47,6 +47,8 @@ below with A's LAN address from network settings; do not use localhost for B.
 On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 
 ```sh
+# Install/start Docker first, then explicitly obtain a trusted image.
+docker pull python:3.13-slim
 "$RELAY/.venv/bin/peer-relay" init \
   --project "$PROJECT" \
   --pair-dir "$PAIR" \
@@ -54,10 +56,16 @@ On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 "$RELAY/.venv/bin/peer-relay" serve --config "$PAIR/server.json"
 ```
 
-The explicit `--grant exec` grants trusted-host commands as Alice's OS user.
-This is not a project sandbox. Omit it for read-only access, or use `rw` for
-replacement proposals with human-local approval. Existing grants never upgrade
-automatically. Start with this disposable project before using a real checkout.
+New exec pairs default to Docker: project-only writable mount, no network or host
+credentials, and a fresh container per command. Pre-pull a trusted image; for real
+projects use a prepared image (prefer a digest) through `--container-image`.
+See [security and compatibility limits](security.md). Docker is required only on A.
+
+If A deliberately wants unrestricted host commands, add
+`--execution-backend host --allow-host-credentials`. This permits access to relay
+secrets, provider logins and persistence; it is not a sandbox. A disposable HOME
+does not change that authority. Omit `--grant exec` for read-only or use `rw` for
+replacement proposals. Existing grants never upgrade automatically.
 
 Leave that terminal running. In another terminal, restore the same `RELAY`,
 `PROJECT`, and `PAIR` values before continuing. Allow inbound connections to
@@ -120,6 +128,10 @@ skills are loaded together. In an exec session Bob can run commands and make
 changes directly; Alice answers project questions in her original chat. The older
 proposal-only mode still uses the human-local approval CLI.
 
+Before either client setup, restrict local shell/file tools in the native client
+or run it in a restricted OS environment. A skill cannot protect either laptop
+from peer prompt injection. See [both-side restrictions](security.md#restrict-both-native-agents-local-tools).
+
 ### Codex
 
 ```sh
@@ -160,7 +172,7 @@ executable merely because it appears in a configuration file.
 
 1. Activate B's response mode first and keep that chat active.
 2. Activate A's requester skill and explicitly say: **Enable requester mode with
-   command execution on my registered workspace. I authorize this trusted-host session.**
+   command execution using my configured backend on the registered workspace.**
    Verify the returned workspace is the correct conversation checkout/worktree.
 3. Tell A: **Replace hello.txt with hello from B followed by a newline, create
    greeting.txt, and run commands that verify both files. Then ask me whether
@@ -168,8 +180,10 @@ executable merely because it appears in a configuration file.
 4. B executes on A directly. No per-file manual approval is needed. A receives
    compact command states and a brief summary. Check the files in A's editor.
 5. A's wait shows native elicitation if supported, otherwise a question in chat.
-   Answer it; the reply goes to B. If A's wait already ended, ask for progress or
-   resume to receive the pending question. Do not expect an idle chat to wake itself.
+   Answer it; the submit-and-follow call continues through further questions. For
+   longer tasks, configure timeouts or opt into Claude background delivery using
+   [follow-through setup](follow-through.md). Without that adapter, a timed-out
+   wait needs a resume request; do not create another task.
 6. Confirm B reports actual command exit codes and the requested result.
 7. Tell B: **Disconnect PeerRelay now.** Further tasks/commands must be refused.
    Disconnect also requests termination of managed command process groups; already
@@ -187,6 +201,9 @@ see [remote execution](remote-execution.md).
 - Stop A's relay with Ctrl-C. Restart it with the same `serve` command and state.
 - Restarting the relay revokes prior leases. B must explicitly reactivate response
   mode; interrupted tasks do not resume automatically.
+- For a follow-up after reconnect, call `resume_requester_mode` with this chat's
+  original mode ID; retain permissions/context. Do not call `requester_mode` again
+  unless deliberately starting a new session. See [diagnostics](follow-through.md).
 - For another project, create a fresh pair outside that project, transfer the new
   responder bundle, update both client configurations, and restart the clients.
   Preserve the old journals rather than deleting them to bypass root binding.

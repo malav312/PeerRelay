@@ -18,6 +18,13 @@ def main():
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
     init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
+    init.add_argument("--execution-backend", choices=("docker", "host"), default="docker")
+    init.add_argument(
+        "--allow-host-credentials",
+        action="store_true",
+        help="Acknowledge host exec can access relay/provider credentials and persist",
+    )
+    init.add_argument("--container-image", default="python:3.13-slim")
     init.add_argument("--project", required=True)
     init.add_argument("--pair-dir", required=True)
     init.add_argument(
@@ -29,11 +36,21 @@ def main():
     serve.add_argument("--bind", help="Default is the configured host; one server process only")
     mcp = sub.add_parser("mcp", help="Run the local role-specific stdio MCP server")
     mcp.add_argument("--config", required=True)
+    mcp.add_argument("--background", choices=("off", "claude-channel"), default="off")
     args = parser.parse_args()
     if args.command == "init":
         print(
             json.dumps(
-                initialize(args.project, args.pair_dir, args.host, args.port, grant=args.grant),
+                initialize(
+                    args.project,
+                    args.pair_dir,
+                    args.host,
+                    args.port,
+                    grant=args.grant,
+                    execution_backend=args.execution_backend,
+                    allow_host_credentials=args.allow_host_credentials,
+                    container_image=args.container_image,
+                ),
                 indent=2,
             )
         )
@@ -62,7 +79,7 @@ def main():
 
         client = Client(config)
         try:
-            build_server(client).run(transport="stdio")
+            build_server(client, background=args.background).run(transport="stdio")
         finally:
             client.close()
 

@@ -34,6 +34,7 @@ def new_id():
 
 REQUESTER = {
     "requester_mode",
+    "mode_status",
     "submit",
     "status",
     "result",
@@ -45,6 +46,7 @@ REQUESTER = {
 RESPONDER = {
     "response_mode",
     "heartbeat",
+    "response_update",
     "claim",
     "remote_tool",
     "propose",
@@ -60,11 +62,12 @@ RESPONDER = {
 
 
 class Relay:
-    def __init__(self, root, state, clock=time.time, grant="rw"):
+    def __init__(self, root, state, clock=time.time, grant="rw", execution_backend=None):
         if grant not in ("ro", "rw", "exec"):
             raise ValueError("Invalid project grant")
         self.root = Path(root).resolve(strict=True)
         self.grant = grant
+        self.execution_config = execution_backend or {"kind": "host"}
         self.clock = clock
         self.lock = threading.RLock()
         self.closed = False
@@ -117,7 +120,9 @@ class Relay:
                 "UPDATE tasks SET state='interrupted' WHERE state IN ('queued','running')"
             )
             self.db.commit()
-            self.executor = Executor(self.state, self.execution_authority)
+            self.executor = Executor(
+                self.state, self.execution_authority, self.root, execution_backend
+            )
             self.questions = Questions(self.db)
             self.db.commit()
         except BaseException:
@@ -225,6 +230,9 @@ class Relay:
         self.mode(row["mode"])
         return row
 
+    def execution_binding(self):
+        return {"workspace": workspace(self.root), "backend": self.execution_config}
+
     def _requester_mode(self, execution=False):
         if type(execution) is not bool or (execution and self.grant != "exec"):
             raise Denied("Execution requires an explicit trusted-host exec pair")
@@ -232,7 +240,8 @@ class Relay:
         self.db.execute("INSERT INTO modes VALUES (?,1)", (mode,))
         if execution:
             self.db.execute(
-                "INSERT INTO execution_modes VALUES (?,?)", (mode, json.dumps(workspace(self.root)))
+                "INSERT INTO execution_modes VALUES (?,?)",
+                (mode, json.dumps(self.execution_binding())),
             )
         return {
             "mode_id": mode,
@@ -240,7 +249,34 @@ class Relay:
             "requester_model_tokens": None,
             "execution": execution,
             "workspace": str(self.root),
-            "permission": "trusted_host" if execution else "proposals_only",
+            "permission": (
+                "container" if self.executor.backend.name == "docker" else "trusted_host"
+            )
+            if execution
+            else "proposals_only",
+        }
+
+    def _mode_status(self, mode_id):
+        self.mode(mode_id)
+        binding = self.db.execute(
+            "SELECT binding FROM execution_modes WHERE mode=?", (mode_id,)
+        ).fetchone()
+        return {
+            "mode_id": mode_id,
+            "execution": binding is not None,
+            "execution_backend": self.executor.backend.name,
+            "execution_quarantined": self.executor.quarantined(),
+            "workspace": str(self.root),
+            "workspace_matches": not binding or json.loads(binding[0]) == self.execution_binding(),
+            "permission": (
+                "container" if self.executor.backend.name == "docker" else "trusted_host"
+            )
+            if binding
+            else "proposals_only",
+            "responder_connected": bool(
+                self.db.execute("SELECT 1 FROM lease WHERE active=1").fetchone()
+            ),
+            "routing": "remote_only",
         }
 
     def _response_mode(self):
@@ -249,6 +285,29 @@ class Relay:
         lease = new_id()
         self.db.execute("INSERT INTO lease VALUES (?,?,1)", (lease, self.clock() + 60))
         return {"lease_id": lease, "state": "available", "lease_seconds": 60}
+
+    def _response_update(self, lease_id):
+        self.lease(lease_id)
+        row = self.db.execute(
+            "SELECT * FROM tasks WHERE lease=? AND state IN ('queued','running') "
+            "ORDER BY CASE state WHEN 'running' THEN 0 ELSE 1 END, rowid LIMIT 1",
+            (lease_id,),
+        ).fetchone()
+        if not row:
+            return {"state": "idle"}
+        if self.questions.pending(row["id"]):
+            return {"state": "waiting_for_requester", "task_id": row["id"]}
+        reply = self.db.execute(
+            "SELECT id FROM questions WHERE task=? "
+            "AND state IN ('answered','declined','cancelled') "
+            "ORDER BY rowid DESC LIMIT 1",
+            (row["id"],),
+        ).fetchone()
+        return {
+            "state": row["state"],
+            "task_id": row["id"],
+            "event": "reply:" + reply[0] if reply else "task_available",
+        }
 
     def _heartbeat(self, lease_id):
         self.lease(lease_id)
@@ -376,6 +435,8 @@ class Relay:
 
     def _complete(self, lease_id, task_id, summary, answer=""):
         self.working(lease_id, task_id)
+        if self.executor.quarantined():
+            raise Denied("Unresolved container cleanup; task completion is blocked")
         if self.questions.pending(task_id):
             raise Denied("Resolve pending questions before completing")
         if any(job["state"] in ACTIVE for job in self.executor.summaries(task_id)):
@@ -459,12 +520,14 @@ class Relay:
             if self.closed:
                 raise Denied("Relay closed")
             task = self.working(lease_id, task_id)
+            if self.executor.quarantined():
+                raise Denied("Unresolved container cleanup; execution is quarantined")
             if self.questions.pending(task_id):
                 raise Denied("Requester response required before further execution")
             row = self.db.execute(
                 "SELECT binding FROM execution_modes WHERE mode=?", (task["mode"],)
             ).fetchone()
-            if self.grant != "exec" or not row or json.loads(row[0]) != workspace(self.root):
+            if self.grant != "exec" or not row or json.loads(row[0]) != self.execution_binding():
                 raise Denied(
                     "Execution not authorized or workspace/branch changed; activate a new mode"
                 )

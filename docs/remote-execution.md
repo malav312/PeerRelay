@@ -6,16 +6,33 @@ It supersedes proposal-only editing only for explicitly authorized exec sessions
 
 ## Enabling it
 
-For a new pair use `peer-relay init ... --grant exec`. This grants trusted-host
-command access as the relay OS user, not a project-only sandbox. For an existing
-pair, have Bob disconnect and stop the relay, update source/dependencies and both
-installed skills, then deliberately change only `grant` in the existing server.json
-to `exec` if Alice wants this access. Preserve root, keys, tokens and all journals.
-Do not rerun init over an existing pair. Restart the same server and native clients.
-No update script changes existing grants automatically.
+For a new pair use `peer-relay init ... --grant exec`. Docker is the default
+backend; preinstall/start Docker and pre-pull a trusted image. See [security](security.md)
+for mount, network, dependency and Git worktree compatibility limits.
+
+For an existing exec pair, disconnect Bob and stop the relay before upgrading.
+Preserve root, keys, tokens and all journals. Set an explicit `execution_backend`
+in server.json; legacy exec configurations now fail closed rather than silently
+retain unrestricted host access. Choose one deliberately:
+
+```json
+{"kind": "docker", "image": "python:3.13-slim"}
+```
+
+Or, only if Alice accepts access to her relay/provider credentials and host persistence:
+
+```json
+{"kind": "host", "allow_host_credentials": true}
+```
+
+Keep `grant: "exec"` for command access. ro/rw pairs do not gain exec automatically.
+Update both installed skills and restart native clients so the new tool catalog is
+loaded. Existing exec modes from before backend binding require one deliberate new
+activation after this upgrade. Subsequent reconnects reuse that new mode normally.
+Do not rerun init over an existing pair or delete journals to bypass binding.
 
 In Alice's chat explicitly say: "Enable requester mode with command execution on
-my registered workspace. I authorize this trusted-host session." The skill calls
+my registered workspace using the configured backend." The skill calls
 requester_mode(execution=true). Verify its returned workspace matches the checkout
 used by that conversation. Bob activates response mode in his own chat. A task
 claim reports writes=commands only for this execution-enabled requester mode.
@@ -30,8 +47,9 @@ IDs. cwd defaults to the project root; subdirectories are resolved and checked.
 The same operation ID and exact payload returns the original command ID. A changed
 payload under the same ID is refused. Durable intent precedes process spawn.
 
-Commands use `/bin/sh -c` in Alice's environment, with a minimal environment allowlist
-listed in the README. For interactive programs request terminal=true; otherwise
+Commands use `/bin/sh -c` in the selected backend with the environment described
+in the [security guide](security.md). Host mode uses a disposable HOME; container
+mode mounts only the project and uses temporary HOME/tmp. For interactive programs request terminal=true; otherwise
 stdin/stdout pipes are used. Optional PTYs support terminal-aware input/output;
 this is not a complete terminal emulator, desktop session, or login shell.
 
@@ -73,24 +91,27 @@ The pending question blocks new commands/input and task completion. It does not
 suspend an already-running program: Bob should cancel that program if the decision
 requires stopping it. Command timeouts continue while waiting for Alice.
 
-Alice's wait_for_update polls ordinary HTTPS in code up to 50 seconds. On a question,
-if the native client advertises MCP form elicitation, it asks Alice and forwards
-accept/decline/cancel. Otherwise it returns the exact question for the requester
-skill to display and answer using answer_question. Replies are bound to task/mode
-and cannot be changed by a later retry. Bob retrieves them through wait_for_answer.
-A declined action is not authorized; Bob should choose an authorized alternative
-or report that the task is blocked. Cancellation/revocation invalidates pending replies.
+Alice's `submit_and_follow` submits once and continues waiting in code through
+consecutive native questions until completion or deadline. `follow_task` resumes
+the existing task. Diagnostics reports advertised form capability and optional
+connection-test response. Unsupported clients return a labeled question for Alice
+to answer through `answer_question`; no automatic choice is made. The compatibility
+`wait_for_update` tool remains available. Replies stay bound to task/mode and cannot
+be changed by a later retry. Bob retrieves them through `wait_for_answer`.
+A declined action is not authorized; choose an authorized alternative or report the
+block. Cancellation/revocation invalidates pending replies.
 
 No default answer, elapsed time, model output or lost request counts as approval.
 A tool cancellation during elicitation leaves the question pending for later delivery.
 Only non-sensitive questions use this channel. Authenticate to external services
 through their normal local flow; do not send passwords or tokens as question answers.
 
-An idle native chat cannot be reliably awakened by this MCP integration. After its
-one wait expires, Alice requests progress/resume to fetch pending questions. Native
-approval dialogs are not automatically intercepted: Bob uses the relay question tool
-for Alice's decisions. Bob's own account/host prompts still belong to Bob. Live
-Codex/Claude UI behavior must be tested separately from MCP protocol fixtures.
+Optional Claude channels can deliver actionable events to an idle session; this is
+opt-in, capability/client dependent, and native delivery still needs acceptance.
+Codex retains bounded follow calls. See [follow-through](follow-through.md). Generic
+MCP does not intercept all native permission dialogs: Bob's own account/host prompts
+remain with Bob. For Docker, cleanup removes the container; failure becomes uncertain
+and blocks restart until cleanup can be verified. Host escaped processes remain a risk.
 
 ## First acceptance task
 

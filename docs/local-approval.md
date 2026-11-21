@@ -1,3 +1,9 @@
+> Security update: CLI decisions now require an interactive terminal and typed
+> action/digest confirmation. A PTY is automatable; this is **not** human identity
+> enforcement. Restrict local agent tools or use a separately protected approval
+> environment. `.git` and credential paths are denied; inspection flags common
+> executable targets. See [security](security.md).
+
 # Human-local inspection and decisions
 
 This guide applies to proposal-only ro/rw sessions. For automatic commands and edits,

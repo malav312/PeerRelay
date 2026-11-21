@@ -22,9 +22,24 @@ def write_private(path, value):
         os.fsync(stream.fileno())
 
 
-def initialize(root, directory, host, port, grant="ro"):
+def initialize(
+    root,
+    directory,
+    host,
+    port,
+    grant="ro",
+    execution_backend="docker",
+    allow_host_credentials=False,
+    container_image="python:3.13-slim",
+):
     if grant not in ("ro", "rw", "exec"):
         raise ValueError("Invalid project grant")
+    if execution_backend not in ("docker", "host"):
+        raise ValueError("Unknown execution backend")
+    if grant == "exec" and execution_backend == "host" and not allow_host_credentials:
+        raise ValueError(
+            "Host exec exposes relay and provider credentials; explicit acknowledgement required"
+        )
     root = Path(root).resolve(strict=True)
     directory = Path(directory).absolute()
     if (
@@ -92,6 +107,11 @@ def initialize(root, directory, host, port, grant="ro"):
             {
                 "root": str(root),
                 "grant": grant,
+                "execution_backend": {
+                    "kind": execution_backend,
+                    "image": container_image,
+                    "allow_host_credentials": allow_host_credentials,
+                },
                 "state_dir": "state",
                 "host": host,
                 "port": port,
