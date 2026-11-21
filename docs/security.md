@@ -35,8 +35,15 @@ failure means `uncertain`, not successful revocation. It quarantines new executi
 and task completion until a restart can verify removal. An unconfirmed creation
 whose container is absent remains unresolved; stop and reconcile with the Docker
 operator rather than deleting the journal or assuming absence proves no late admission. These lifecycle contracts have
-automated tests; a real Docker daemon run remains required before relying on this
-experimental backend in your environment.
+automated tests plus real acceptance coverage against Podman 6.0.2's Docker API
+with Docker CLI 29.10.0. Docker Engine itself and other runtime versions remain
+unverified. Run the opt-in runtime suite in your environment before relying on this
+experimental backend. See [verification](verification.md).
+
+Temporary HOME is a mode-700 directory created as the non-root command UID inside
+a fresh sticky tmpfs before peer code starts. This avoids Docker API implementations
+that reject tmpfs ownership options. The private directory is disposable per command;
+its parent is writable within the container, and no host HOME is mounted.
 
 Host execution is a separate explicit choice:
 

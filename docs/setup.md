@@ -59,7 +59,18 @@ docker pull python:3.13-slim
 New exec pairs default to Docker: project-only writable mount, no network or host
 credentials, and a fresh container per command. Pre-pull a trusted image; for real
 projects use a prepared image (prefer a digest) through `--container-image`.
-See [security and compatibility limits](security.md). Docker is required only on A.
+See [security and compatibility limits](security.md). The container runtime is required only on A.
+
+Podman can provide the local Docker-compatible endpoint: start `podman machine`,
+confirm it exposes `/var/run/docker.sock`, and put the real `docker` CLI on the
+relay process's PATH. PeerRelay still uses `--execution-backend docker`; a shell
+alias from `docker` to `podman` is not sufficient. No remote context or socket
+fallback is selected. `docker --host unix:///var/run/docker.sock version` should
+show the expected local Podman server. Preload the image in that same runtime.
+Podman 6.0.2 with Docker CLI 29.10.0 on Apple silicon has passed the runtime tests
+in [verification](verification.md). Other versions need the same acceptance check.
+Docker publishes a [standalone macOS CLI](https://docs.docker.com/engine/install/binaries/);
+Docker Desktop is not required for this Podman arrangement.
 
 If A deliberately wants unrestricted host commands, add
 `--execution-backend host --allow-host-credentials`. This permits access to relay

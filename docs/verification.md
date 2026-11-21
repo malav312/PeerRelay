@@ -1,4 +1,42 @@
-# Follow-through and security verification — November 21, 2026
+# Podman runtime acceptance — November 21, 2026
+
+**173 tests passed in 39.51 seconds**, including all seven real-runtime checks.
+Ruff lint/format and whitespace checks pass; one upstream Starlette/httpx warning
+remains. Independent review found no important issues in the HOME fix or tests.
+
+The previously unavailable runtime checks were exercised through the actual backend:
+Docker CLI 29.10.0, `/var/run/docker.sock`, Podman 6.0.2, rootless libkrun VM,
+Apple silicon host and cached `python:3.13-slim`. No backend mocks or CLI aliases.
+The standalone Docker CLI was downloaded to a temporary test directory from
+[Docker's official distribution](https://docs.docker.com/engine/install/binaries/).
+No live pair or provider credentials were mounted or used.
+
+The first test failed before workload launch: Podman's Docker API rejected
+`uid=501` on the HOME tmpfs mount. The backend now creates a mode-700 HOME as the
+command UID inside a fresh sticky tmpfs before executing peer text as a separate
+shell argument. No other execution restriction was relaxed.
+
+The opt-in suite checks project writes and stable-ID replay, a synthetic outside
+secret and escaping symlink, non-root UID, private HOME permissions, read-only root,
+no external network or container socket, dropped capabilities and no-new-privileges;
+pipe/PTY input; timeout; disconnect removal of a detached child; and cleanup of a
+real orphaned container after relay-process death, without replaying its write.
+
+Reproduce with a running local Docker-compatible socket, the cached image and a real
+Docker CLI on PATH:
+
+```sh
+PEERRELAY_CONTAINER_TEST=1 PYTHONPATH=src .venv/bin/python -m pytest -q
+```
+
+Without explicit opt-in the runtime tests are skipped. Tests create disposable
+projects and journals, and clean up only their own named containers. Actual Docker
+Engine, other Podman versions, native client delivery and token savings are still
+unverified. This is runtime acceptance, not a general container escape audit.
+
+---
+
+# Follow-through and security verification — November 21, 2026 (before runtime acceptance)
 
 The full suite passed: **166 tests in 31.19 seconds**. Ruff lint, formatting
 and Git whitespace checks pass. One upstream Starlette/httpx deprecation warning

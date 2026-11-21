@@ -87,9 +87,9 @@ class DockerBackend:
             "--tmpfs",
             "/tmp:rw,nosuid,nodev,size=64m",
             "--tmpfs",
-            f"/home/relay:rw,nosuid,nodev,size=64m,uid={uid},gid={gid},mode=700",
+            "/home/relay:rw,nosuid,nodev,size=64m,mode=1777",
             "--env",
-            "HOME=/home/relay",
+            "HOME=/home/relay/private",
             "--env",
             "GIT_TERMINAL_PROMPT=0",
             "--mount",
@@ -99,7 +99,20 @@ class DockerBackend:
         ]
         if spec["terminal"]:
             argv.append("--tty")
-        argv.extend([self.image, "/bin/sh", "-c", spec["command"]])
+        # Podman's Docker API rejects uid/gid tmpfs options. Create a private HOME
+        # as the command UID in a fresh sticky mount before any peer code runs.
+        argv.extend(
+            [
+                self.image,
+                "/bin/sh",
+                "-c",
+                'mkdir -m 700 "$HOME" && exec "$@"',
+                "peerrelay-init",
+                "/bin/sh",
+                "-c",
+                spec["command"],
+            ]
+        )
         return argv, str(self.root), base_environment()
 
     def prepare(self, ident, spec):
