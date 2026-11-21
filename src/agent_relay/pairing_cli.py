@@ -50,6 +50,15 @@ def relay_running(pair_dir):
         os.close(fd)
 
 
+def canonical_folder(path):
+    """Resolve symlinks in the user-typed parent (e.g. macOS /tmp); the folder itself must
+    not be a symlink. Stored paths are then symlink-free, as private_file requires."""
+    path = Path(path).expanduser().absolute()
+    if path.is_symlink():
+        raise ValueError("The pairing folder itself must not be a symlink")
+    return path.parent.resolve() / path.name
+
+
 def pair_host(
     project,
     pair_dir,
@@ -66,7 +75,7 @@ def pair_host(
 ):
     host = host or pairing.local_address()
     name = pairing.display_name(name or pairing.default_name())
-    pair_dir = Path(pair_dir).absolute()
+    pair_dir = canonical_folder(pair_dir)
     server_path = pair_dir / "server.json"
     if server_path.exists():
         raw = json.loads(private_file(server_path).read_text())
@@ -181,11 +190,9 @@ def pair_join(
     out=print,
     discover_seconds=6.0,
 ):
-    directory = Path(directory).absolute()
+    directory = canonical_folder(directory)
     if directory.exists():
         raise ValueError("Use a new folder for this pairing (it must not exist yet)")
-    if directory.parent.resolve() != directory.parent:
-        raise ValueError("The pairing folder must not be inside a symlinked path")
     name = pairing.display_name(name or pairing.default_name())
     out("")
     out("PeerRelay · join as responder")
@@ -223,7 +230,9 @@ def pair_join(
             break
         except pairing.WrongCode as error:
             last = error
-            out(f"  ✗ {error}")
+            # The final failure is reported once by the caller; only narrate retries.
+            if candidate is not candidates[-1]:
+                out(f"  ✗ {error}; trying the next device on this channel…")
     else:
         raise last or pairing.PairingFailed("Pairing failed")
     directory.mkdir(mode=0o700, parents=True)

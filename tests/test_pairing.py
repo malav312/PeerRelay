@@ -214,3 +214,29 @@ def test_tampered_encrypted_message_fails_authentication():
         sender.send_json({"ok": True})
         with pytest.raises(pairing.PairingFailed, match="authentication"):
             receiver.recv_json()
+
+
+def test_wrong_code_is_reported_once(tmp_path):
+    lines = []
+    with Host(tmp_path, window=2) as host:
+        with pytest.raises(pairing.WrongCode):
+            pair_join(
+                tmp_path / "bob",
+                code="7-orbit-lemon",
+                address=host.address,
+                ask=lambda prompt: "y",
+                out=lines.append,
+            )
+    # The CLI prints the raised error; pair_join itself must not print it too.
+    assert not any("Wrong code" in line for line in lines)
+
+
+def test_symlinked_parent_folders_are_resolved(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "link").symlink_to(real)
+    from agent_relay.pairing_cli import canonical_folder
+
+    assert canonical_folder(tmp_path / "link" / "pair") == real.resolve() / "pair"
+    with pytest.raises(ValueError, match="itself must not be a symlink"):
+        canonical_folder(tmp_path / "link")
