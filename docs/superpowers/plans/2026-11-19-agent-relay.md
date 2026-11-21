@@ -14,7 +14,7 @@ Historical initial plan. Approval and creation behavior is superseded by
 **Spec:** docs/superpowers/specs/2026-11-19-agent-relay-design.md
 
 ## Global Constraints
-- No upstream runtime changes, no the unrelated application access, no provider credential access.
+- No unrelated application changes or provider credential access.
 - 512 KiB text files, 20,000-character prompts, 2,000-character summaries.
 - Explicit approval per file; no deletion, shell, or multi-file atomicity.
 - Never substitute A's local model when B is unavailable.

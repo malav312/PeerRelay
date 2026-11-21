@@ -1,8 +1,7 @@
 # PeerRelay: requester and response modes
 
 The user selected a standalone Codex/Claude MCP integration, explicitly asked to
-start building, and deferred review-coverage optimization. No upstream runtime or
-the unrelated application changes are part of this work.
+start building, and deferred review-coverage optimization. No unrelated application changes are part of this work.
 
 ## Intent and chosen approach
 A is nearly out of usage; B explicitly offers their own authenticated agent.
