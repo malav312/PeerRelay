@@ -11,14 +11,17 @@ They must be able to reach A's LAN address on TCP port 9443.
 
 ## 1. Install the source on both laptops
 
-The GitHub repository is private. B needs repository access from its owner, or a
-privately transferred source copy. Transfer source without virtual environments,
-pairing state, or credentials.
+The source repository is public; both people can clone it without a GitHub account.
+No separate PeerRelay account is needed. Each person uses their own signed-in Codex
+or Claude Code client. Pairing data and credentials stay private.
+
+This is an experimental developer preview. Start with the disposable project below;
+live mixed Codex/Claude sessions are not yet verified.
 
 Run on each laptop, from the folder where you want the repository:
 
 ```sh
-gh repo clone malav312/PeerRelay
+git clone https://github.com/malav312/PeerRelay.git
 cd PeerRelay
 uv sync --frozen
 RELAY="$(pwd -P)"

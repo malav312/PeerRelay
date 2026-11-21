@@ -8,7 +8,9 @@ makes no provider/model calls and does not copy provider credentials.
 
 Follow the [two-laptop setup guide](docs/setup.md). Python 3.13+, uv, Git and a
 signed-in native client are required on each laptop; current support is macOS/Linux.
-The repository is private, so Bob needs access or a private source copy.
+This is an experimental developer preview. Both people can clone the public
+repository; pairing credentials and journals must stay private. Mixed Codex/Claude
+native sessions still need live acceptance testing.
 
 ## Full coding sessions
 
