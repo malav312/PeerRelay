@@ -24,6 +24,19 @@ def main():
         "--host", default="127.0.0.1", help="Reachable A hostname/IP for the TLS certificate"
     )
     init.add_argument("--port", type=int, default=9443)
+    pair = sub.add_parser("pair", help="Show a spoken pairing code for a responder on this network")
+    pair.add_argument("--project", required=True)
+    pair.add_argument("--pair-dir", required=True, help="New or existing private pair folder")
+    pair.add_argument("--grant", choices=("ro", "rw", "exec"), help="Default ro for a new pair")
+    pair.add_argument("--host", help="LAN address to use (default: detected)")
+    pair.add_argument("--port", type=int, default=9443, help="Relay port; pairing uses port+1")
+    pair.add_argument("--name", help="Name shown to the other person")
+    pair.add_argument("--no-advertise", action="store_true", help="Skip mDNS; join by --address")
+    join = sub.add_parser("join", help="Join a pairing by typing the code you were told")
+    join.add_argument("--dir", required=True, help="New private folder for this pairing")
+    join.add_argument("--code", help="Pairing code (prompted if omitted)")
+    join.add_argument("--address", help="HOST:PORT if discovery is blocked on this network")
+    join.add_argument("--name", help="Name shown to the other person")
     serve = sub.add_parser("serve", help="Run A's project relay")
     serve.add_argument("--config", required=True)
     serve.add_argument("--bind", help="Default is the configured host; one server process only")
@@ -37,6 +50,35 @@ def main():
                 indent=2,
             )
         )
+        return
+    if args.command in ("pair", "join"):
+        from .pairing import PairingFailed
+        from .pairing_cli import pair_host, pair_join, parse_address
+
+        try:
+            if args.command == "pair":
+                pair_host(
+                    args.project,
+                    args.pair_dir,
+                    grant=args.grant,
+                    host=args.host,
+                    port=args.port,
+                    name=args.name,
+                    advertise=not args.no_advertise,
+                )
+            else:
+                pair_join(
+                    args.dir,
+                    code=args.code,
+                    address=parse_address(args.address) if args.address else None,
+                    name=args.name,
+                )
+        except (ValueError, PairingFailed) as error:
+            print(f"  ✗ {error}", file=sys.stderr)
+            raise SystemExit(1) from None
+        except KeyboardInterrupt:
+            print("\n  Pairing cancelled; nothing was saved.", file=sys.stderr)
+            raise SystemExit(130) from None
         return
     config = load(args.config)
     if args.command == "serve":

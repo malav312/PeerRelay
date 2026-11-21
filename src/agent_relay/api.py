@@ -1,5 +1,7 @@
+import hashlib
 import hmac
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event, Thread
@@ -54,10 +56,19 @@ def create_app(config):
         path = Path(path).resolve(strict=True)
         if path == root or root in path.parents:
             raise ValueError("Private configuration/credentials overlap the project")
-    tokens = {
-        role: private_file(path).read_text().strip() for role, path in config["tokens"].items()
+    # Only digests are kept in memory. Spoken-code pairing stores just the digest of
+    # Bob's self-generated token, so Alice's disk never holds Bob's credential.
+    digests = {
+        role: hashlib.sha256(private_file(path).read_text().strip().encode()).hexdigest()
+        for role, path in config["tokens"].items()
     }
-    if set(tokens) != {"requester", "responder"} or len(set(tokens.values())) != 2:
+    for role, digest in config.get("token_sha256", {}).items():
+        if role in digests or not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
+            raise ValueError("Invalid stored credential digest")
+        digests[role] = digest
+    if "responder" not in digests:
+        raise ValueError("No responder is paired yet; run `peer-relay pair` first")
+    if set(digests) != {"requester", "responder"} or len(set(digests.values())) != 2:
         raise ValueError("Separate paired credentials required")
 
     @asynccontextmanager
@@ -91,8 +102,16 @@ def create_app(config):
     @app.post("/rpc")
     async def rpc(request: Request):
         supplied = request.headers.get("authorization", "")
+        presented = hashlib.sha256(
+            supplied.removeprefix("Bearer ").encode(errors="replace")
+        ).hexdigest()
         role = next(
-            (r for r, t in tokens.items() if hmac.compare_digest(supplied, "Bearer " + t)), None
+            (
+                r
+                for r, d in digests.items()
+                if supplied.startswith("Bearer ") and hmac.compare_digest(presented, d)
+            ),
+            None,
         )
         if role is None:
             return JSONResponse({"error": "unauthorized"}, 401)

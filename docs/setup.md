@@ -32,6 +32,47 @@ If you already have the source, enter that directory and start at `uv sync`.
 Keep `RELAY` set to this laptop's absolute repository path in subsequent commands.
 Each laptop builds its own virtual environment. No provider API key is required.
 
+## Quick path: pair with a spoken code (same Wi-Fi)
+
+This replaces steps 2 and 3 below. No file is transferred and no secret is sent
+over chat. Both laptops need to be on the same network.
+
+On A, from the `PeerRelay` folder:
+
+```sh
+"$RELAY/.venv/bin/peer-relay" pair --project /absolute/path/to/project \
+  --pair-dir /absolute/path/to/private-pair --grant exec
+```
+
+A sees a code such as `7-orbit-lantern` and reads it aloud. On B:
+
+```sh
+"$RELAY/.venv/bin/peer-relay" join --dir /absolute/path/to/new-private-folder
+```
+
+B types the code. B's screen shows A's device name, the project and the access
+level. Both screens show the same six-digit check number; each person confirms.
+A then starts the relay with the `serve` command it prints, and B adds the MCP
+snippet it prints. Continue at step 4.
+
+How it works:
+
+- The number before the words is a public channel. It only picks A's pairing
+  advertisement (mDNS) when several people pair on one network. A avoids
+  channels that are already in use.
+- The two words are the password for a SPAKE2 key exchange. A wrong guess
+  reveals nothing useful offline. Each code allows 3 attempts and expires after
+  5 minutes; afterwards run `pair` again for a new code.
+- B generates its own responder token and sends it encrypted. A stores only
+  its SHA-256, so A's disk never holds B's credential.
+- B pins A's certificate, so a new DHCP address does not break the pairing;
+  update `url` in B's `client.json` if A's address changes.
+- mDNS is advertised only while the code is open. If a network blocks it
+  (common on guest or office Wi-Fi), use the `join --address HOST:PORT` line
+  shown on A's screen. Pairing uses the relay port + 1 (default 9444).
+- Running `pair` again on an existing pair folder replaces the responder and
+  keeps the access level. Stop `serve` first.
+
 ## 2. A: create a demo project and pair
 
 In A's terminal, choose a new demo directory:

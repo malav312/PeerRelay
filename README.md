@@ -14,9 +14,11 @@ native sessions still need live acceptance testing.
 
 ## Full coding sessions
 
-1. Alice initializes a pair outside her project with `--grant exec`, then starts
-   the HTTPS relay. This explicitly permits trusted-host command execution.
-2. Alice privately transfers only the generated `responder/` bundle to Bob.
+1. Alice runs `peer-relay pair --grant exec` outside her project and reads the
+   spoken code aloud; Bob runs `peer-relay join` and types it (same Wi-Fi,
+   SPAKE2, nothing secret transferred). Alice then starts the HTTPS relay.
+   `exec` explicitly permits trusted-host command execution.
+2. (Legacy alternative: `init` plus a privately transferred `responder/` bundle.)
 3. Each installs its role's MCP configuration and skill. Bob activates response
    mode; Alice activates requester mode with explicit execution authorization.
 4. Alice gives a task. Bob reads files and uses remote commands to create/edit/
