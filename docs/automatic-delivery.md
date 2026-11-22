@@ -1,9 +1,12 @@
-# Owned native delivery: controller stage
+# Owned native delivery
 
 This branch implements Codex session ownership, durable event delivery and relay
 waiting in code. It includes a runnable acceptance demo using a disposable real
-relay and scripted native turns. It does **not** yet connect role activation in a
-native MCP chat to the controller or enable unattended delivery in installed chats.
+relay and scripted native turns, plus the experimental `codex-responder` launcher
+for an existing responder bundle. The launcher owns role activation and binds
+task tools to its exact native thread and lease. See [client sessions](client-sessions.md#dedicated-automatic-codex-responder-experimental)
+for launch instructions. Existing installed chats are not retroactively connected
+to this controller; native model/TUI acceptance remains pending.
 
 The chosen Codex experience is a dedicated native terminal using that person's
 own sign-in. An arbitrary existing desktop conversation is not a delivery target.
@@ -45,15 +48,16 @@ question or terminal task status can start one. Native loss, relay failure, chan
 workspace, mode exit or lease revocation stops waiting and discards pending wakes.
 Disconnect is a local controller stop, not a final model call under revoked authority.
 Stopping the monitor stops heartbeat; it does not create, reactivate or disconnect
-an authority it did not acquire. The eventual owner must explicitly disconnect its
-lease on session close; relay expiry is the fallback if that request cannot arrive.
+an authority it did not acquire. The dedicated launcher explicitly disconnects its
+owned lease on session close; relay expiry is the fallback if that request cannot arrive.
 
 `NativeRPC` uses the maintained `websockets` package, has bounded responses and
 notification queues, and performs no automatic reconnect. Metadata operations are
-the default allowlist; `allow_turns=True` must be supplied explicitly by a future
-integration. A native server request stops this transport with
-`native_request_requires_ui`; this stage never invents approval or elicitation
-answers. `run_delivery` joins monitor, notification, server and terminal lifetimes.
+the default allowlist; the dedicated launcher explicitly supplies `allow_turns=True`.
+Its dynamic-tool bridge handles only registered responder tools for the exact
+thread and lease. Other native server requests stop this transport with
+`native_request_requires_ui`; it never invents approval or elicitation answers.
+`run_delivery` joins monitor, notification, server and terminal lifetimes.
 
 ## Run the deterministic acceptance demo
 
@@ -105,6 +109,12 @@ A preceding standalone spike demonstrated a terminal observing controller metada
 on the same exact thread; that is separate evidence, not this probe's assertion.
 
 ## Next integration stage
+
+The dedicated responder command now covers native startup, exact lease activation,
+tool registration and owner cleanup. Remaining work includes bootstrap/role-command
+launcher integration, requester delivery and Claude channel setup. The points below
+describe that broader integration; they are not prerequisites for trying the
+explicit experimental responder command.
 
 1. Extend `client-setup` and its Codex launcher with the intended role-only MCP
    configuration and role skill. Keep provider authentication inside the person's
