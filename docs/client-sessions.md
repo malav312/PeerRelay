@@ -78,8 +78,9 @@ PeerRelay entry only if you run it. Desktop users can import the same command an
 arguments through their client's MCP configuration. Restart and open the generated
 chat directory to load the skill and MCP server.
 
-**Complete local-tool restriction is not verified for Codex.** No automatic Codex
-launcher is generated. `features.shell_tool=false` removes command tools, but it
+**Complete local-tool restriction is not verified for Codex.** `client-setup`
+does not generate a Codex launcher. The separate experimental `codex-responder`
+command below provides dedicated native delivery with the documented limitations. `features.shell_tool=false` removes command tools, but it
 does not establish removal of every local read, edit, app, browser or delegated
 tool. A read-only sandbox allows local reads. Hooks have incomplete coverage and
 failure behavior that prevents treating them as a complete enforcement boundary.
@@ -119,3 +120,43 @@ or unattended background delivery. Keep those results separate in a test report.
 References: [Claude CLI controls](https://code.claude.com/docs/en/cli-reference),
 [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference),
 and [Codex hook coverage and errors](https://learn.chatgpt.com/docs/hooks).
+
+## Dedicated automatic Codex responder (experimental)
+
+Bob can explicitly launch a new native terminal using an existing responder bundle:
+
+```sh
+peer-relay codex-responder --config /absolute/path/responder/client.json \
+  --directory /private/tmp/peerrelay-bob-unique
+```
+
+Run this in Bob's human terminal with Codex CLI **0.171.0** already installed and
+signed in normally. Choose a new, short private directory each time. The launcher
+uses Bob's existing native sign-in; it does not copy credentials, create an API
+worker, change global Codex configuration, or attach to an existing chat. Alice can
+use the prepared Claude requester session and its existing requester-mode flow.
+This command activates Bob's response lease after native startup checks; setup
+alone does not activate anything. Start Bob before Alice sends work.
+
+The launcher creates one owned app-server, exact thread, native terminal and lease.
+It registers the existing responder MCP task handlers as native dynamic tools.
+Calls from another thread, with another lease, or to activation/background tools
+are rejected. Code watches for new work and answered questions; only those events
+start native turns. Idle/pending task and answer waits return immediately so the
+native model can end its turn. Closing the terminal, disconnecting, losing transport,
+or an approval request stops delivery and revokes the owned lease where reachable.
+An uncertain native turn start is recorded and never automatically replayed.
+
+Startup checks enforce read-only sandbox writes, no approval escalation, disabled
+shell/execution, apps, browser, web search, plugins and delegation features. Other
+configured MCP servers cause startup to fail unless the command override clears
+them. These controls **do not establish total local-read isolation**: native file
+read facilities may remain. Bob must use a suitable OS account/container if local
+read isolation is required. The responder instructions require requester work to
+use the remote tools. The human native terminal retains its own controls; changing
+its permissions is outside the validated configuration.
+
+Validation includes a disposable TLS relay flow through the real MCP handlers and
+an outbound-denied, credential-free native metadata probe with zero model turns.
+Live model tool compliance, native human-turn concurrency and a signed-in TUI remain
+manual acceptance checks. No provider inference is part of the automated suite.

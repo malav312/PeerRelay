@@ -81,6 +81,12 @@ controller and Codex terminal on CLI 0.171.0 without a model call. Task delivery
 turn ownership, approvals and reconnect recovery still need implementation and
 acceptance. See [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 
+The [owned-session controller stage](automatic-delivery.md) now implements exact
+Codex session lifecycle, durable meaningful-event delivery and code-only relay
+monitoring, with a runnable scripted acceptance demo and a zero-turn native metadata
+probe. Native MCP/launcher bindings and approval/tool-restriction acceptance remain
+the next stage; installed chats do not gain automatic delivery from this layer.
+
 Both sides should wait in code, without idle model polling. A task, needed answer,
 completion or disconnect triggers delivery. Preserve operation IDs, reconcile
 uncertain delivery and stop on explicit disconnect. All four client combinations
