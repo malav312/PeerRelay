@@ -8,7 +8,7 @@ provider/model calls. Host exec can nevertheless expose provider credentials; se
 the [security boundaries and tradeoffs](docs/security.md).
 
 Follow the [two-laptop setup guide](docs/setup.md). This pairing branch has
-[automated integration results](docs/pairing-verification.md); PR #1 remains unmerged. Python 3.13+, uv, Git and a
+[automated integration results](docs/pairing-verification.md); [PR #2](https://github.com/malav312/PeerRelay/pull/2) remains unmerged. Python 3.13+, uv, Git and a
 signed-in native client are required on each laptop; current support is macOS/Linux.
 This is an experimental developer preview. Both people can clone the public
 repository; pairing credentials and journals must stay private. Mixed Codex/Claude

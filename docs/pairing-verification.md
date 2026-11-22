@@ -1,6 +1,6 @@
 # Spoken-code pairing integration — November 21, 2026
 
-PR #1 is based on cleaned main, which contains the tested follow-through, security
+[PR #2](https://github.com/malav312/PeerRelay/pull/2) is based on cleaned main, which contains the tested follow-through, security
 and Podman execution implementation. The PR remains unmerged for two-laptop
 acceptance. Both people must use the updated pairing branch for that test.
 
