@@ -47,6 +47,7 @@ class Session:
     def __init__(self, owner, directory, record):
         self.owner, self.directory, self.record = owner, directory, record
         self.lock = threading.RLock()
+        self.closed = False
         self.fd = os.open(directory / "owner.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -76,11 +77,24 @@ class Session:
             self.record["error"] = "Setup interrupted; inspect the local view before retrying."
             self.save()
 
+    def _ensure_open(self):
+        # Called while holding the session lock. Never acquire the manager lock here:
+        # manager shutdown fences new operations before waiting for individual sessions.
+        if self.closed or self.owner.closed:
+            raise ValueError("Setup is closed; resume it in a new bootstrap process")
+
+    def _release_owner(self):
+        # A slow pairing worker retains ownership until its final filesystem effects end.
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
     def save(self):
         write_replace(self.directory / "setup.json", json.dumps(self.record, indent=2))
 
     def receipt(self):
         with self.lock:
+            self._ensure_open()
             return {
                 **{key: self.record[key] for key in ("setup_id", "role", "state", "relay")},
                 "setup_url": f"{self.owner.url}/{self.view_token}",
@@ -89,6 +103,7 @@ class Session:
 
     def reuse(self, config_path):
         with self.lock:
+            self._ensure_open()
             if self.record["state"] not in ("choose_pairing", "failed", "cancelled", "interrupted"):
                 raise ValueError("Setup already started; keep the existing pairing")
             config_path = private_file(Path(config_path).expanduser().absolute())
@@ -103,6 +118,7 @@ class Session:
 
     def role_server(self):
         with self.lock:
+            self._ensure_open()
             if self.record["state"] != "paired":
                 raise ValueError("Pairing is not ready; complete the local setup view")
             config = load(self.record["config"])
@@ -115,7 +131,7 @@ class Session:
 
     def _confirm(self, details):
         with self.lock:
-            if self.cancelled.is_set():
+            if self.closed or self.owner.closed or self.cancelled.is_set():
                 return False
             # Never expose token digests or certificates to the view.
             self.view["confirmation"] = {
@@ -130,6 +146,7 @@ class Session:
 
     def confirm(self, accepted):
         with self.lock:
+            self._ensure_open()
             if type(accepted) is not bool or self.record["state"] != "confirming":
                 raise ValueError("No pairing confirmation is pending")
             self.accepted = accepted
@@ -148,14 +165,17 @@ class Session:
             self.active_socket = sock
 
     def _before_commit(self):
-        if self.cancelled.is_set():
-            raise ValueError("Pairing cancelled before saving credentials")
+        with self.lock:
+            self._ensure_open()
+            if self.cancelled.is_set():
+                raise ValueError("Pairing cancelled before saving credentials")
 
     def start_pairing(self, settings):
         from . import pairing
         from .setup import check_directories, check_endpoint, execution_config
 
         with self.lock:
+            self._ensure_open()
             if self.record["state"] not in ("choose_pairing", "failed", "cancelled", "interrupted"):
                 raise ValueError("Pairing already started; resume this setup")
             if self.worker and self.worker.is_alive():
@@ -218,7 +238,9 @@ class Session:
         try:
             self._before_commit()
             if self.record["role"] == "requester":
-                self.listener = socket.create_server((settings["host"], settings["port"] + 1))
+                with self.lock:
+                    self._before_commit()
+                    self.listener = socket.create_server((settings["host"], settings["port"] + 1))
                 pair_host(
                     settings["project"],
                     pair_dir,
@@ -270,15 +292,19 @@ class Session:
                 self.view.clear()
                 self.save()
         finally:
-            self.active_socket = None
-            if self.listener:
-                self.listener.close()
-                self.listener = None
+            with self.lock:
+                self.active_socket = None
+                if self.listener:
+                    self.listener.close()
+                    self.listener = None
+                if self.closed:
+                    self._release_owner()
 
     def check_relay(self):
         import httpx
 
         with self.lock:
+            self._ensure_open()
             if self.record["state"] != "paired":
                 raise ValueError("Pairing is not ready")
             client = Client(load(self.record["config"]))
@@ -305,6 +331,7 @@ class Session:
         import time
 
         with self.lock:
+            self._ensure_open()
             config = self.directory / "pair" / "server.json"
             if self.record.get("config") != str(config.parent / "requester/client.json"):
                 raise ValueError("The selected bundle does not belong to this setup relay")
@@ -331,58 +358,74 @@ class Session:
                 time.sleep(0.1)
             raise ValueError("Relay did not become ready; check its project/backend and port")
 
+    def _cancel_locked(self):
+        self.cancelled.set()
+        self.answer.set()
+        if self.active_socket:
+            import socket
+
+            try:
+                self.active_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        if self.listener:
+            import socket
+
+            try:
+                self.listener.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self.listener.close()
+        self.record["state"] = (
+            "cancelling" if self.worker and self.worker.is_alive() else "cancelled"
+        )
+        self.save()
+
     def cancel(self):
         with self.lock:
+            self._ensure_open()
             if self.record["state"] == "paired":
                 raise ValueError(
                     "Pairing already saved; use role disconnect/exit, not setup cancel"
                 )
-            self.cancelled.set()
-            self.answer.set()
-            if self.active_socket:
-                import socket
-
-                try:
-                    self.active_socket.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-            if self.listener:
-                import socket
-
-                try:
-                    self.listener.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                self.listener.close()
-            self.record["state"] = (
-                "cancelling" if self.worker and self.worker.is_alive() else "cancelled"
-            )
-            self.save()
+            self._cancel_locked()
             return self.receipt()
 
     def close(self):
-        if self.record["state"] != "paired":
-            self.cancel()
-        if self.relay_process is not None:
-            import subprocess
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            self.view_token = ""
+            self.view.clear()
+            if self.record["state"] != "paired":
+                self._cancel_locked()
+            process, client, worker = self.relay_process, self.client, self.worker
+        # Workers take the session lock to finish. Never join or close their clients
+        # while holding it; shutdown has already fenced all new resource acquisition.
+        try:
+            if process is not None:
+                import subprocess
 
-            self.relay_process.terminate()
-            try:
-                self.relay_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.relay_process.kill()
-                self.relay_process.wait()
-        # Bound role servers never run their own stdio cleanup. Their channel
-        # watches are disabled; the local changes viewer still needs shutdown.
-        if self.server:
-            self.server.changes_viewer.close()
-        if self.client:
-            self.client.close()
-        if self.worker:
-            self.worker.join(timeout=2)
-        # Do not release ownership while a worker can still commit credentials.
-        if not self.worker or not self.worker.is_alive():
-            os.close(self.fd)
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            # Bound servers do not run their own stdio cleanup. Channel watches
+            # are disabled here, but their local review viewer must be closed.
+            if self.server:
+                self.server.changes_viewer.close()
+            if client:
+                client.close()
+            if worker:
+                worker.join(timeout=2)
+        finally:
+            with self.lock:
+                if not worker or not worker.is_alive():
+                    self._release_owner()
+
 
 
 class Setups:
@@ -393,6 +436,7 @@ class Setups:
             raise ValueError("Setup directory must be owned and private")
         self.sessions = {}
         self.lock = threading.RLock()
+        self.closed = False
         self.http = None
         self.url = None
 
@@ -408,6 +452,8 @@ class Setups:
         binding_id = _identifier(binding_id, "binding_id")
         setup_id = hashlib.sha256(binding_id.encode()).hexdigest()
         with self.lock:
+            if self.closed:
+                raise ValueError("Bootstrap is closed; start a new process to resume setup")
             if setup_id not in self.sessions:
                 directory = self.root / setup_id
                 directory.mkdir(mode=0o700, exist_ok=True)
@@ -444,6 +490,8 @@ class Setups:
         if hashlib.sha256(binding_id.encode()).hexdigest() != setup_id:
             raise ValueError("Setup does not belong to this chat binding")
         with self.lock:
+            if self.closed:
+                raise ValueError("Bootstrap is closed; start a new process to resume setup")
             if setup_id not in self.sessions:
                 record = json.loads(private_file(self.root / setup_id / "setup.json").read_text())
                 self.begin(record["role"], binding_id)
@@ -456,11 +504,20 @@ class Setups:
         return self.session(setup_id, binding_id).role_server()
 
     def close(self):
-        if self.http:
-            self.http.shutdown()
-            self.http.server_close()
-        for session in self.sessions.values():
-            session.close()
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            sessions, http = tuple(self.sessions.values()), self.http
+        # Release the manager lock before stopping sessions or joining the HTTP loop.
+        # An already-authorized delayed body still encounters the session's closed guard.
+        try:
+            for session in sessions:
+                session.close()
+        finally:
+            if http:
+                http.shutdown()
+                http.server_close()
 
 
 def build_server(setups):
