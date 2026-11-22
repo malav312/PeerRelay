@@ -9,8 +9,9 @@ link, not paths or patch text.
 
 `view_changes(mode_id, task_id)` returns or renews that link. It does not retrieve
 the patch for the model. `get_changes_for_analysis` explicitly returns the full
-bounded artifact to model context and is reserved for a user request to analyze
-changes. Showing the review page alone should not call that tool or fetch the page
+bounded artifact to requester model context only when the user explicitly requests
+that. Ordinary requests to explain/review changes are forwarded to Bob, preserving
+the requester role. Showing the review page alone should not call that tool or fetch the page
 through a model browsing tool. This separation does not prevent a model from
 misusing a tool against its instructions; it is not a new consent mechanism.
 

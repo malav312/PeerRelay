@@ -372,6 +372,10 @@ class Session:
             except subprocess.TimeoutExpired:
                 self.relay_process.kill()
                 self.relay_process.wait()
+        # Bound role servers never run their own stdio cleanup. Their channel
+        # watches are disabled; the local changes viewer still needs shutdown.
+        if self.server:
+            self.server.changes_viewer.close()
         if self.client:
             self.client.close()
         if self.worker:

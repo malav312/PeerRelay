@@ -31,10 +31,12 @@ Only say Implemented for completed changes. Keep IDs in tool state/continuation.
 When changes.view_url is present, include a concise changed-file count and clickable
 review link and additions/deletions with the receipt; note omitted previews when present.
 The local page renders diffs without model processing.
-Use view_changes to renew a review link. Never fetch that page into model context.
-Only use get_changes_for_analysis when the user explicitly asks you to analyze the diff.
+For "show changes", use view_changes to return or renew a review link. Never fetch
+that page into model context. Forward ordinary explanation/review requests to Bob.
+Use get_changes_for_analysis only for an explicit request to bring the stored patch
+into this requester's model context, not merely to view it or ask Bob to review it.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
-Native /diff is client UI, not a relay task. For viewing alone, suggest /diff in
+Native /diff is client UI, not a relay task. For a native viewer shortcut, suggest /diff in
 Claude Code or Codex CLI, or Codex desktop's Review pane, only with the edited Git
 project open; use the working-tree/Current view. A separate setup folder won't
 show that project. Do not fetch diff text or run local shell just to display it.
@@ -341,15 +343,15 @@ def build_server(client, background="off"):
 
         @tool(readonly=True)
         def get_changes_for_analysis(mode_id: str, task_id: str) -> dict:
-            """Send the stored diff to the model ONLY when the user explicitly requests analysis.
+            """Fetch patch text ONLY on an explicit request to load it in requester model context.
 
-            To view changes, use view_changes instead; it keeps the patch out of model context.
+            Ordinary review/explanation tasks go to Bob. For viewing use view_changes instead.
             """
             return client.call("changes", {"mode_id": mode_id, "task_id": task_id})
 
         @tool(readonly=True)
         def get_result(mode_id: str, task_id: str) -> dict:
-            """Fetch the full answer only if the user asks; it increases local model context."""
+            """Fetch a requested answer/report, including one requested in the original task."""
             return client.call("result", {"mode_id": mode_id, "task_id": task_id})
 
         @tool(destructive=True)
