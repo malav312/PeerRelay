@@ -3,10 +3,12 @@
 Alice keeps a small requester chat. Bob offers his own active Codex or Claude Code
 agent to do the reasoning. PeerRelay routes work to Bob and, with Alice's explicit
 execution permission, runs Bob's commands on Alice's machine in her existing
-project/worktree. Each person stays signed into their own account. PeerRelay
-makes no provider/model calls and does not copy provider credentials.
+project/worktree. Each person uses their own signed-in client. PeerRelay makes no
+provider/model calls. Host exec can nevertheless expose provider credentials; see
+the [security boundaries and tradeoffs](docs/security.md).
 
-Follow the [two-laptop setup guide](docs/setup.md). Python 3.13+, uv, Git and a
+Follow the [two-laptop setup guide](docs/setup.md). This pairing branch has
+[automated integration results](docs/pairing-verification.md); PR #1 remains unmerged. Python 3.13+, uv, Git and a
 signed-in native client are required on each laptop; current support is macOS/Linux.
 This is an experimental developer preview. Both people can clone the public
 repository; pairing credentials and journals must stay private. Mixed Codex/Claude
@@ -17,8 +19,8 @@ native sessions still need live acceptance testing.
 1. Alice runs `peer-relay pair --grant exec` outside her project and reads the
    spoken code aloud; Bob runs `peer-relay join` and types it (same Wi-Fi,
    SPAKE2, nothing secret transferred). Alice then starts the HTTPS relay.
-   `exec` explicitly permits trusted-host command execution.
-2. (Legacy alternative: `init` plus a privately transferred `responder/` bundle.)
+   `exec` defaults to project-only Docker containers with no network.
+2. Alternatively, use `init` plus a privately transferred `responder/` bundle.
 3. Each installs its role's MCP configuration and skill. Bob activates response
    mode; Alice activates requester mode with explicit execution authorization.
 4. Alice gives a task. Bob reads files and uses remote commands to create/edit/
@@ -43,12 +45,16 @@ requester token or TLS private key. See the setup guide for client commands.
 
 ## Permissions and branches
 
-`exec` commands run as Alice's relay OS user, with that user's filesystem/network
-permissions. This is trusted-host access, **not a project sandbox**. A working
-directory check does not prevent commands from accessing other host paths. Use it
-only with a trusted responder and tasks whose effects Alice authorizes. For OS
-isolation, run the whole relay in an appropriately restricted account/container.
-Native agents' own host tools are not disabled by an MCP skill.
+New `exec` pairings use per-command Docker containers with only the project mounted.
+Docker is an additional requirement on Alice's laptop; pre-pull a trusted image.
+Commands have no network, so prepare dependencies in the image. The adapter is
+experimental and still needs real Docker acceptance in your environment.
+
+Host exec requires `--execution-backend host --allow-host-credentials` and gives
+Bob Alice's relay-user authority, including access to relay/provider credentials
+and persistence. A disposable HOME is not isolation. Native agents' own local
+tools also need client/OS restrictions on both laptops. Read the
+[security guide](docs/security.md) before choosing a backend.
 
 The mode records the exact registered root and Git worktree/branch. No branch is
 created or switched automatically. Existing uncommitted changes stay in place;
@@ -72,11 +78,14 @@ Alice's decisions; generic MCP cannot intercept every native agent approval dial
 Bob's own account/client permission prompts remain with Bob. Do not send secrets
 through question forms or chat replies.
 
-Elicitation is delivered during an active requester wait. If Alice's client lacks
-form support, the question is returned for a short chat response. An idle chat
-cannot reliably be awakened: after a wait times out, Alice asks for progress/resume.
-Waits/heartbeat/polling are ordinary code, but model turns around them can cost
-usage. Actual native token savings and client persistence still need acceptance.
+`submit_and_follow` keeps status polling and successive native question replies in
+code until completion or a bounded deadline. `requester_diagnostics` reports actual
+advertised client capabilities. Reuse the same mode ID for follow-ups and use
+`resume_requester_mode` after reconnecting; do not recreate a default proposal mode.
+Optional Claude channel delivery wakes only for actionable updates. Codex uses the
+portable bounded follow flow. See [follow-through setup](docs/follow-through.md)
+for timeouts, fallback behavior and native-client verification limits. Native token
+consumption remains unmeasured; no savings percentage is promised.
 
 Commands have stable IDs, bounded output, optional PTY/stdin, timeout and cancellation.
 Disconnect, cancel, mode exit and lease expiry revoke further execution and request
@@ -94,19 +103,26 @@ and input. Read tools handle bounded NUL-free UTF-8 text; commands can operate o
 other file formats. No transaction covers multiple files or arbitrary shell effects.
 Large logs are truncated; write a project log deliberately when full output matters.
 
-The command environment includes PATH/HOME/USER/LOGNAME/LANG/TMPDIR when present,
-TERM and GIT_TERMINAL_PROMPT=0; arbitrary server variables are not inherited. Use
-explicit virtual-environment executables or commands such as `uv run` as appropriate.
-This does not prevent trusted commands from reading Alice's host files or shell profiles.
-The command timeout must cover the intended work, including interactive waiting.
+Host commands receive a minimal environment and disposable HOME/tmp; arbitrary
+server environment variables are not inherited. Absolute host paths remain
+accessible in host mode. Container HOME/tmp are ephemeral and only the project
+mount persists. Command timeout includes interactive waiting.
+
+Filesystem reads/search/proposals exclude common credential paths and `.git`.
+`.peerrelayignore` adds exclusions. These filters do not constrain host commands
+or guarantee that source files contain no secrets. Proposal inspection flags common
+code-executing targets; interactive confirmation is not proof of a human.
 
 Private journals contain task text, questions/replies, command text/output and file
 proposals. There is no automatic retention scheduler in this version. Protect them
-and their backups. The generated certificate lasts 30 days; address/certificate
-changes require a fresh pairing. Keep old journals rather than bypassing root binding.
+and their backups. The generated certificate lasts 30 days; expiry requires a fresh
+pairing. Spoken-code clients pin the certificate; update their URL and the server
+bind address when DHCP changes. Legacy bundles also check the hostname. Keep old
+journals rather than bypassing root binding.
 
 See [execution details](docs/remote-execution.md) and [verification](docs/verification.md).
 The tests use disposable projects and real TLS/MCP processes, not live provider tasks.
+See [security](docs/security.md) for audit logs, fresh-pair revocation and residual risks.
 Filesystem foundation attribution is preserved in NOTICE/LICENSE.
 
 ## Development

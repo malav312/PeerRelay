@@ -16,7 +16,7 @@ CODE = "7-orbit-lantern"
 class Host:
     """Runs Alice's side on loopback in a thread (no mDNS)."""
 
-    def __init__(self, tmp_path, allow=True, grant="exec", window=20):
+    def __init__(self, tmp_path, allow=True, grant="exec", window=20, backend="host"):
         self.project = tmp_path / "project"
         self.project.mkdir(exist_ok=True)
         self.pair_dir = tmp_path / "pair"
@@ -24,6 +24,7 @@ class Host:
         self.address = self.listener.getsockname()
         self.lines, self.error, self.peer = [], None, None
         self.allow, self.grant, self.window = allow, grant, window
+        self.backend = backend
 
     def run(self):
         try:
@@ -38,6 +39,8 @@ class Host:
                 ask=lambda prompt: "y" if self.allow else "n",
                 out=self.lines.append,
                 window=self.window,
+                execution_backend=self.backend,
+                allow_host_credentials=True if self.backend == "host" else None,
             )
         except Exception as error:
             self.error = error
@@ -240,3 +243,34 @@ def test_symlinked_parent_folders_are_resolved(tmp_path):
     assert canonical_folder(tmp_path / "link" / "pair") == real.resolve() / "pair"
     with pytest.raises(ValueError, match="itself must not be a symlink"):
         canonical_folder(tmp_path / "link")
+
+
+def test_container_pair_consent_and_repair_preserve_backend(tmp_path):
+    with Host(tmp_path, backend="docker") as host:
+        offer, lines = join(tmp_path, host.address)
+    assert host.error is None
+    before = json.loads((host.pair_dir / "server.json").read_text())["execution_backend"]
+    assert offer["execution_backend"] == "docker"
+    assert any("project-only Docker" in line for line in lines)
+    assert any("project-only Docker" in line for line in host.lines)
+    with Host(tmp_path, grant=None, backend=None) as host:
+        offer, lines = join(tmp_path, host.address, folder="bob-new")
+    assert host.error is None
+    after = json.loads((host.pair_dir / "server.json").read_text())["execution_backend"]
+    assert before == after
+    assert offer["execution_backend"] == "docker"
+
+
+def test_repair_legacy_bundle_updates_requester_endpoint_and_pin(tmp_path):
+    from agent_relay.setup import initialize
+
+    root = tmp_path / "project"
+    root.mkdir()
+    folder = tmp_path / "pair"
+    initialize(root, folder, "localhost", 9443, grant="ro")
+    with Host(tmp_path, grant=None, backend=None) as host:
+        join(tmp_path, host.address)
+    assert host.error is None
+    requester = load(folder / "requester/client.json")
+    assert requester["url"] == "https://127.0.0.1:9443"
+    assert requester["pin"] is True

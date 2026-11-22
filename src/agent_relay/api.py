@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -9,30 +10,55 @@ from threading import Event, Thread
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from .client import private_file
+from .audit import AuthAudit
+from .client import load, private_file
 from .filesystem import Changed, Refused
 from .service import Denied, Relay
 
 
 class Boundary:
-    def __init__(self, app):
+    def __init__(self, app, digests):
         self.app = app
+        self.digests = digests
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         if scope["scheme"] != "https":
             return await JSONResponse({"error": "https_required"}, 426)(scope, receive, send)
+        headers = [v for k, v in scope.get("headers", []) if k.lower() == b"authorization"]
+        supplied = headers[0] if len(headers) == 1 else b""
+        presented = hashlib.sha256(supplied.removeprefix(b"Bearer ")).hexdigest()
+        role = next(
+            (
+                r
+                for r, digest in self.digests.items()
+                if supplied.startswith(b"Bearer ") and hmac.compare_digest(presented, digest)
+            ),
+            None,
+        )
+        if role is None:
+            audit = getattr(getattr(scope.get("app"), "state", None), "audit", None)
+            peer = (scope.get("client") or ("unknown", 0))[0]
+            limited = audit.failed(peer) if audit else False
+            return await JSONResponse({"error": "unauthorized"}, 429 if limited else 401)(
+                scope, receive, send
+            )
+        scope["peerrelay_role"] = role
         body = bytearray()
-        while True:
-            item = await receive()
-            if item["type"] == "http.disconnect":
-                return
-            body.extend(item.get("body", b""))
-            if len(body) > 4 * 1024 * 1024:
-                return await JSONResponse({"error": "too_large"}, 413)(scope, receive, send)
-            if not item.get("more_body"):
-                break
+        try:
+            async with asyncio.timeout(5):
+                while True:
+                    item = await receive()
+                    if item["type"] == "http.disconnect":
+                        return
+                    body.extend(item.get("body", b""))
+                    if len(body) > 4 * 1024 * 1024:
+                        return await JSONResponse({"error": "too_large"}, 413)(scope, receive, send)
+                    if not item.get("more_body"):
+                        break
+        except TimeoutError:
+            return await JSONResponse({"error": "body_timeout"}, 408)(scope, receive, send)
         delivered = False
 
         async def bounded_receive():
@@ -71,10 +97,40 @@ def create_app(config):
     if set(digests) != {"requester", "responder"} or len(set(digests.values())) != 2:
         raise ValueError("Separate paired credentials required")
 
+    execution_config = None
+    if config.get("grant") == "exec":
+        execution_config = config.get("execution_backend")
+        if not isinstance(execution_config, dict) or execution_config.get("kind") not in (
+            "docker",
+            "host",
+        ):
+            raise ValueError(
+                "Exec requires explicit backend configuration; legacy host access is disabled"
+            )
+        if (
+            execution_config["kind"] == "host"
+            and execution_config.get("allow_host_credentials") is not True
+        ):
+            raise ValueError(
+                "Host exec requires acknowledgement of relay/provider credential access"
+            )
+
     @asynccontextmanager
     async def lifespan(app):
-        relay = Relay(config["root"], config["state_dir"], grant=config.get("grant", "rw"))
+        relay = Relay(
+            config["root"],
+            config["state_dir"],
+            grant=config.get("grant", "rw"),
+            execution_backend=execution_config,
+        )
+        try:
+            if "_path" in config and load(config["_path"]) != config:
+                raise ValueError("Relay configuration changed during startup; restart serve")
+        except BaseException:
+            relay.close()
+            raise
         app.state.relay = relay
+        app.state.audit = AuthAudit(relay.state)
         stop = Event()
 
         def maintain():
@@ -91,30 +147,18 @@ def create_app(config):
             stop.set()
             thread.join()
             relay.close()
+            app.state.audit.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(Boundary)
+    app.add_middleware(Boundary, digests=digests)
 
     @app.get("/healthz")
     def health():
-        return {"status": "ready", "service": "PeerRelay"}
+        return {"status": "ready"}
 
     @app.post("/rpc")
     async def rpc(request: Request):
-        supplied = request.headers.get("authorization", "")
-        presented = hashlib.sha256(
-            supplied.removeprefix("Bearer ").encode(errors="replace")
-        ).hexdigest()
-        role = next(
-            (
-                r
-                for r, d in digests.items()
-                if supplied.startswith("Bearer ") and hmac.compare_digest(presented, d)
-            ),
-            None,
-        )
-        if role is None:
-            return JSONResponse({"error": "unauthorized"}, 401)
+        role = request.scope["peerrelay_role"]
         try:
             body = await request.json()
             if not isinstance(body, dict) or set(body) != {"method", "arguments"}:

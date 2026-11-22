@@ -1,3 +1,99 @@
+# Clean main verification — November 21, 2026
+
+The cleaned main candidate preserves the follow-through and Podman-tested execution
+implementation. Changes since that acceptance are documentation/naming cleanup and
+private temporary-file naming. Prefix checks continue to protect legacy operation
+files, including empty and newline-containing suffixes. Independent review found
+that edge case; the new test failed before its correction and then passed.
+
+The portable suite passes **167 tests**, with seven explicitly opt-in container
+tests skipped and one upstream Starlette/httpx warning. Ruff lint/format and Git
+whitespace checks pass. The previous seven real Podman acceptance tests are recorded
+below; they were not rerun as part of this naming cleanup.
+
+The history scan examines every commit reachable from the cleaned branch candidates,
+including PR #1's branch. Following maintainer approval, the updated pairing branch
+also uses cleaned ancestry and the two superseded branches were removed. The scan
+permits required attribution files and the pairing code's ordinary English word list,
+and rejects unrelated project references and personal paths elsewhere.
+See [clone migration](history-cleanup.md).
+
+---
+
+# Podman runtime acceptance — November 21, 2026
+
+**173 tests passed in 39.51 seconds**, including all seven real-runtime checks.
+Ruff lint/format and whitespace checks pass; one upstream Starlette/httpx warning
+remains. Independent review found no important issues in the HOME fix or tests.
+
+The previously unavailable runtime checks were exercised through the actual backend:
+Docker CLI 29.10.0, `/var/run/docker.sock`, Podman 6.0.2, rootless libkrun VM,
+Apple silicon host and cached `python:3.13-slim`. No backend mocks or CLI aliases.
+The standalone Docker CLI was downloaded to a temporary test directory from
+[Docker's official distribution](https://docs.docker.com/engine/install/binaries/).
+No live pair or provider credentials were mounted or used.
+
+The first test failed before workload launch: Podman's Docker API rejected
+`uid=501` on the HOME tmpfs mount. The backend now creates a mode-700 HOME as the
+command UID inside a fresh sticky tmpfs before executing peer text as a separate
+shell argument. No other execution restriction was relaxed.
+
+The opt-in suite checks project writes and stable-ID replay, a synthetic outside
+secret and escaping symlink, non-root UID, private HOME permissions, read-only root,
+no external network or container socket, dropped capabilities and no-new-privileges;
+pipe/PTY input; timeout; disconnect removal of a detached child; and cleanup of a
+real orphaned container after relay-process death, without replaying its write.
+
+Reproduce with a running local Docker-compatible socket, the cached image and a real
+Docker CLI on PATH:
+
+```sh
+PEERRELAY_CONTAINER_TEST=1 PYTHONPATH=src .venv/bin/python -m pytest -q
+```
+
+Without explicit opt-in the runtime tests are skipped. Tests create disposable
+projects and journals, and clean up only their own named containers. Actual Docker
+Engine, other Podman versions, native client delivery and token savings are still
+unverified. This is runtime acceptance, not a general container escape audit.
+
+---
+
+# Follow-through and security verification — November 21, 2026 (before runtime acceptance)
+
+The full suite passed: **166 tests in 31.19 seconds**. Ruff lint, formatting
+and Git whitespace checks pass. One upstream Starlette/httpx deprecation warning
+remains. Verification ran in an isolated checkout; MCP SDK subprocess tests
+explicitly load that checkout's source rather than the installed editable package.
+
+Coverage includes mode/context reuse, idempotent submit-and-follow, sequential
+elicitation, deadlines and cancellation; authenticated body limits, filtered file
+access, credential-shaped answer refusal and interactive approval; execution
+backend binding, stopped-container preparation, launch-time authority revalidation,
+cleanup uncertainty and quarantine. Raw MCP stdio tests verify Claude channel
+capability advertisement, bounded notifications containing IDs rather than peer
+text, acknowledgement and duplicate suppression.
+
+Independent whole-change review identified backend binding, container admission,
+cleanup quarantine and stale runtime guidance issues. A second pass identified
+lease/workspace changes during container preparation. These were corrected, and
+the final reviewer verified the launch revalidation fix with all 13 backend tests
+passing and no remaining important findings within the review scope.
+
+**Limits:** Docker is unavailable on the test host, so container argument/lifecycle
+contracts and failure injection are verified, not execution against a real Docker
+daemon. Native Claude channel wake-up and Codex/Claude form rendering still need
+two-client acceptance. Updated skill guidance has not been newly pressure-tested
+or deployed to live clients. Requester token savings have not been measured.
+
+The prior responder session was disconnected. No live pairing configuration was
+changed and no automatic reconnection occurred. TTY confirmation is friction, not
+proof of human presence; unrestricted host execution still exposes OS-user secrets.
+Automatic retention and in-place token rotation remain deferred, with operational
+tradeoffs documented in [security](security.md). Git history cleanup remains a
+separate TODO.
+
+---
+
 # Remote execution verification — November 20, 2026
 
 Current suite: **128 passed** in both the isolated execution checkout and

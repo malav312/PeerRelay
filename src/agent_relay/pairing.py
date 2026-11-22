@@ -260,6 +260,8 @@ def validate_offer(offer):
     display_name(offer.get("user"))
     if offer.get("grant") not in ("ro", "rw", "exec"):
         raise PairingFailed("Unknown access level offered")
+    if offer.get("grant") == "exec" and offer.get("execution_backend") not in ("docker", "host"):
+        raise PairingFailed("Unknown execution backend offered; update both clients")
     port = offer.get("relay_port")
     if type(port) is not int or not 1 <= port <= 65535:
         raise PairingFailed("Invalid relay port offered")

@@ -92,10 +92,30 @@ def client_config(role, url, token_file, pin=False):
     return json.dumps(value, indent=2)
 
 
-def initialize(root, directory, host, port, grant="ro"):
-    """Legacy pairing: creates both tokens and a responder/ bundle to transfer."""
+def execution_config(grant, backend, acknowledge, image):
     if grant not in ("ro", "rw", "exec"):
         raise ValueError("Invalid project grant")
+    if backend not in ("docker", "host"):
+        raise ValueError("Unknown execution backend")
+    if grant == "exec" and backend == "host" and acknowledge is not True:
+        raise ValueError(
+            "Host exec exposes relay and provider credentials; explicit acknowledgement required"
+        )
+    return {"kind": backend, "image": image, "allow_host_credentials": acknowledge}
+
+
+def initialize(
+    root,
+    directory,
+    host,
+    port,
+    grant="ro",
+    execution_backend="docker",
+    allow_host_credentials=False,
+    container_image="python:3.13-slim",
+):
+    """Legacy pairing: creates both tokens and a responder/ bundle to transfer."""
+    backend = execution_config(grant, execution_backend, allow_host_credentials, container_image)
     root, directory = check_directories(root, directory)
     check_endpoint(host, port)
     if directory.exists():
@@ -119,6 +139,7 @@ def initialize(root, directory, host, port, grant="ro"):
             {
                 "root": str(root),
                 "grant": grant,
+                "execution_backend": backend,
                 "state_dir": "state",
                 "host": host,
                 "port": port,
@@ -139,10 +160,18 @@ def initialize(root, directory, host, port, grant="ro"):
     }
 
 
-def initialize_host(root, directory, host, port, grant="ro"):
+def initialize_host(
+    root,
+    directory,
+    host,
+    port,
+    grant="ro",
+    execution_backend="docker",
+    allow_host_credentials=False,
+    container_image="python:3.13-slim",
+):
     """Spoken-code pairing: Alice's side only. The responder is added by `pair`."""
-    if grant not in ("ro", "rw", "exec"):
-        raise ValueError("Invalid project grant")
+    backend = execution_config(grant, execution_backend, allow_host_credentials, container_image)
     root, directory = check_directories(root, directory)
     check_endpoint(host, port)
     if directory.exists():
@@ -165,6 +194,7 @@ def initialize_host(root, directory, host, port, grant="ro"):
             {
                 "root": str(root),
                 "grant": grant,
+                "execution_backend": backend,
                 "state_dir": "state",
                 "host": host,
                 "port": port,

@@ -6,11 +6,12 @@ import os
 import secrets
 import socket
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import pairing
-from .client import private_file
-from .setup import client_config, initialize_host, write_private, write_replace
+from .client import load, private_file
+from .setup import client_config, execution_config, initialize_host, write_private, write_replace
 
 ACCESS = {
     "ro": "READ-ONLY: can read and search project files",
@@ -19,7 +20,11 @@ ACCESS = {
 }
 
 
-def describe(grant, host, user="the host"):
+def describe(grant, host, user="the host", backend=None):
+    if grant == "exec" and backend == "docker":
+        return "EXEC: project-only Docker containers, no network or host credentials"
+    if grant == "exec":
+        return ACCESS[grant].format(user=user, host=host) + "; relay/provider credentials exposed"
     return ACCESS[grant].format(user=user, host=host)
 
 
@@ -36,16 +41,25 @@ def boxed(text):
     return f"  ┌{bar}┐\n  │{inner}│\n  └{bar}┘"
 
 
-def relay_running(pair_dir):
-    path = Path(pair_dir) / "state" / "relay.lock"
-    if not path.exists():
-        return False
-    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+@contextmanager
+def pairing_guard(server_path):
+    """Hold the same owner lock as serve throughout the pairing transaction."""
+    config = load(server_path)
+    state, root = Path(config["state_dir"]).absolute(), Path(config["root"]).resolve(strict=True)
+    if root == state or root in state.parents or state in root.parents:
+        raise ValueError("Project and private state must be separate")
+    state.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if state.resolve() != state or state.stat().st_uid != os.getuid():
+        raise ValueError("State must be an owned directory without symlinks")
+    os.chmod(state, 0o700)
+    fd = os.open(state / "relay.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return False
-    except BlockingIOError:
-        return True
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("Stop `peer-relay serve` or the other pairing session first") from None
+        # Read after acquiring the lock; a preceding pair may have just replaced credentials.
+        yield json.loads(private_file(server_path).read_text())
     finally:
         os.close(fd)
 
@@ -72,75 +86,104 @@ def pair_host(
     ask=input,
     out=print,
     window=pairing.WINDOW,
+    execution_backend=None,
+    allow_host_credentials=None,
+    container_image=None,
 ):
     host = host or pairing.local_address()
     name = pairing.display_name(name or pairing.default_name())
     pair_dir = canonical_folder(pair_dir)
     server_path = pair_dir / "server.json"
-    if server_path.exists():
-        raw = json.loads(private_file(server_path).read_text())
+    if not server_path.exists():
+        initialize_host(
+            project,
+            pair_dir,
+            host,
+            port,
+            grant or "ro",
+            execution_backend=execution_backend or "docker",
+            allow_host_credentials=allow_host_credentials or False,
+            container_image=container_image or "python:3.13-slim",
+        )
+    with pairing_guard(server_path) as raw:
         if grant is not None and grant != raw.get("grant", "rw"):
             raise ValueError("This pair already has a different access level; use a new --pair-dir")
+        backend = raw.get("execution_backend")
+        if raw.get("grant") == "exec":
+            if not isinstance(backend, dict):
+                raise ValueError(
+                    "Exec requires explicit backend configuration; use a new --pair-dir"
+                )
+            execution_config(
+                raw["grant"],
+                backend.get("kind"),
+                backend.get("allow_host_credentials"),
+                backend.get("image"),
+            )
+        for key, value in (
+            ("kind", execution_backend),
+            ("allow_host_credentials", allow_host_credentials),
+            ("image", container_image),
+        ):
+            if value is not None and (backend or {}).get(key) != value:
+                raise ValueError(
+                    "This pair has a different execution backend; use a new --pair-dir"
+                )
         if Path(project).resolve() != Path(raw["root"]):
             raise ValueError("This pair is registered to a different project")
-        if relay_running(pair_dir):
-            raise ValueError("Stop `peer-relay serve` for this pair before pairing again")
-    else:
-        initialize_host(project, pair_dir, host, port, grant or "ro")
-        raw = json.loads(server_path.read_text())
-    grant = raw.get("grant", "rw")
-    relay_port = raw["port"]
-    certificate = (pair_dir / raw["ca_file"]).read_text()
-    user = os.environ.get("USER", "your")
+        grant = raw.get("grant", "rw")
+        backend_kind = raw.get("execution_backend", {}).get("kind")
+        relay_port = raw["port"]
+        certificate = (pair_dir / raw["ca_file"]).read_text()
+        user = os.environ.get("USER", "your")
 
-    own = listener is None
-    if own:
-        listener = socket.create_server((host, relay_port + 1))
-    advertisement = None
-    try:
-        bound = listener.getsockname()
-        if code is None:
-            taken = []
+        own = listener is None
+        if own:
+            listener = socket.create_server((host, relay_port + 1))
+        advertisement = None
+        try:
+            bound = listener.getsockname()
+            if code is None:
+                taken = []
+                if advertise:
+                    taken = [e["channel"] for e in pairing.discover(1.5)]
+                code = pairing.new_code(taken)
+            channel, code = pairing.parse_code(code)
             if advertise:
-                taken = [e["channel"] for e in pairing.discover(1.5)]
-            code = pairing.new_code(taken)
-        channel, code = pairing.parse_code(code)
-        if advertise:
-            advertisement = pairing.Advertisement(bound[0], bound[1], channel, name)
+                advertisement = pairing.Advertisement(bound[0], bound[1], channel, name)
 
-        out("")
-        out("PeerRelay · pair a responder")
-        out(f"  Project   {Path(raw['root']).name}   ({raw['root']})")
-        out(f"  Access    {describe(grant, name, user)}")
-        out(f"  This Mac  {name} · {bound[0]}")
-        out("")
-        out(boxed(f"Pairing code:  {code}"))
-        out("")
-        out("  Read it aloud to the other person. They run:  peer-relay join --dir <folder>")
-        how = "advertising on this network" if advertise else "not advertised"
-        out(f"  Expires in {window // 60} min · {pairing.ATTEMPTS} attempts · {how}")
-        out(f"  If they can't find you:  peer-relay join --address {bound[0]}:{bound[1]}")
-        out("")
-        out("  Waiting for a device…")
+            out("")
+            out("PeerRelay · pair a responder")
+            out(f"  Project   {Path(raw['root']).name}   ({raw['root']})")
+            out(f"  Access    {describe(grant, name, user, backend_kind)}")
+            out(f"  This Mac  {name} · {bound[0]}")
+            out("")
+            out(boxed(f"Pairing code:  {code}"))
+            out("")
+            out("  Read it aloud to the other person. They run:  peer-relay join --dir <folder>")
+            how = "advertising on this network" if advertise else "not advertised"
+            out(f"  Expires in {window // 60} min · {pairing.ATTEMPTS} attempts · {how}")
+            out(f"  If they can't find you:  peer-relay join --address {bound[0]}:{bound[1]}")
+            out("")
+            out("  Waiting for a device…")
 
-        def confirm(peer):
-            out(f"  → “{peer['device']}” ({peer['address']}) entered the right code.")
-            out(f"    Check number:  {peer['check']}    ← must match their screen")
-            return yes(ask, f"    Allow “{peer['device']}” with {grant.upper()} access? [y/N] ")
+            def confirm(peer):
+                out(f"  → “{peer['device']}” ({peer['address']}) entered the right code.")
+                out(f"    Check number:  {peer['check']}    ← must match their screen")
+                return yes(ask, f"    Allow “{peer['device']}” with {grant.upper()} access? [y/N] ")
 
-        def commit(peer):
-            current = json.loads(private_file(server_path).read_text())
-            current["tokens"].pop("responder", None)  # A re-pair replaces any responder.
-            current["token_sha256"] = {"responder": peer["token_sha256"]}
-            current["responder"] = {
-                "name": peer["device"],
-                "address": peer["address"],
-                "paired_at": pairing.now(),
-            }
-            current["host"] = bound[0] if own else current["host"]
-            write_replace(server_path, json.dumps(current, indent=2))
-            requester = pair_dir / "requester" / "client.json"
-            if own and json.loads(requester.read_text()).get("pin"):
+            def commit(peer):
+                current = json.loads(private_file(server_path).read_text())
+                current["tokens"].pop("responder", None)  # A re-pair replaces any responder.
+                current["token_sha256"] = {"responder": peer["token_sha256"]}
+                current["responder"] = {
+                    "name": peer["device"],
+                    "address": peer["address"],
+                    "paired_at": pairing.now(),
+                }
+                current["host"] = bound[0]
+                write_replace(server_path, json.dumps(current, indent=2))
+                requester = pair_dir / "requester" / "client.json"
                 write_replace(
                     requester,
                     client_config(
@@ -151,27 +194,28 @@ def pair_host(
                     ),
                 )
 
-        offer = {
-            "host_name": name,
-            "project": Path(raw["root"]).name[:128] or "project",
-            "grant": grant,
-            "user": user[:64],
-            "relay_port": relay_port,
-            "certificate": certificate,
-        }
-        peer = pairing.host(listener, code, offer, confirm, commit, log=out, window=window)
-    finally:
-        if advertisement is not None:
-            advertisement.close()
-        if own:
-            listener.close()
-    out("")
-    out(f"  ✓ Paired with “{peer['device']}”. Pairing window closed.")
-    out("  Start the relay:")
-    out(f"      peer-relay serve --config {server_path}")
-    out("  Requester MCP config:")
-    out(f"      {pair_dir / 'requester' / 'client.json'}")
-    return peer
+            offer = {
+                "host_name": name,
+                "project": Path(raw["root"]).name[:128] or "project",
+                "grant": grant,
+                "execution_backend": backend_kind,
+                "user": user[:64],
+                "relay_port": relay_port,
+                "certificate": certificate,
+            }
+            peer = pairing.host(listener, code, offer, confirm, commit, log=out, window=window)
+        finally:
+            if advertisement is not None:
+                advertisement.close()
+            if own:
+                listener.close()
+        out("")
+        out(f"  ✓ Paired with “{peer['device']}”. Pairing window closed.")
+        out("  Start the relay:")
+        out(f"      peer-relay serve --config {server_path}")
+        out("  Requester MCP config:")
+        out(f"      {pair_dir / 'requester' / 'client.json'}")
+        return peer
 
 
 def parse_address(text):
@@ -216,7 +260,10 @@ def pair_join(
             out("  ✓ Code accepted.")
             out(f"    Device    {offer['host_name']}")
             out(f"    Project   {offer['project']}")
-            out(f"    Access    {describe(offer['grant'], offer['host_name'], offer['user'])}")
+            access = describe(
+                offer["grant"], offer["host_name"], offer["user"], offer.get("execution_backend")
+            )
+            out(f"    Access    {access}")
             out(f"    Check number:  {check}    ← must match their screen")
             accepted = yes(ask, "    Accept this pairing? [y/N] ")
             if accepted:

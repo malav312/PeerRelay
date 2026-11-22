@@ -35,7 +35,15 @@ Each laptop builds its own virtual environment. No provider API key is required.
 ## Quick path: pair with a spoken code (same Wi-Fi)
 
 This replaces steps 2 and 3 below. No file is transferred and no secret is sent
-over chat. Both laptops need to be on the same network.
+over chat. Both laptops need to be on the same network and on this pairing branch.
+With `--grant exec`, install/start Docker (or the Podman setup below) and pre-pull
+`python:3.13-slim` on A before serving. The default is a project-only writable
+container mount, no network and no host credentials. Dependencies must be in the
+image. The pairing screen tells both people which backend is selected.
+
+For deliberate unrestricted host execution, `pair` accepts
+`--execution-backend host --allow-host-credentials`, just like `init`. Read the
+[security tradeoffs](security.md) first. Omit `--grant exec` for read-only access.
 
 On A, from the `PeerRelay` folder:
 
@@ -66,12 +74,13 @@ How it works:
 - B generates its own responder token and sends it encrypted. A stores only
   its SHA-256, so A's disk never holds B's credential.
 - B pins A's certificate, so a new DHCP address does not break the pairing;
-  update `url` in B's `client.json` if A's address changes.
+  update `url` in both client configs and the server bind address if A's address changes.
 - mDNS is advertised only while the code is open. If a network blocks it
   (common on guest or office Wi-Fi), use the `join --address HOST:PORT` line
   shown on A's screen. Pairing uses the relay port + 1 (default 9444).
 - Running `pair` again on an existing pair folder replaces the responder and
-  keeps the access level. Stop `serve` first.
+  keeps the access level, execution backend, image and credential acknowledgement.
+  Changing these options requires a new pair folder. Stop `serve` first.
 
 ## 2. A: create a demo project and pair
 
@@ -88,6 +97,8 @@ below with A's LAN address from network settings; do not use localhost for B.
 On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 
 ```sh
+# Install/start Docker first, then explicitly obtain a trusted image.
+docker pull python:3.13-slim
 "$RELAY/.venv/bin/peer-relay" init \
   --project "$PROJECT" \
   --pair-dir "$PAIR" \
@@ -95,10 +106,27 @@ On a Mac using Wi-Fi, `ipconfig getifaddr en0` may show that address.
 "$RELAY/.venv/bin/peer-relay" serve --config "$PAIR/server.json"
 ```
 
-The explicit `--grant exec` grants trusted-host commands as Alice's OS user.
-This is not a project sandbox. Omit it for read-only access, or use `rw` for
-replacement proposals with human-local approval. Existing grants never upgrade
-automatically. Start with this disposable project before using a real checkout.
+New exec pairs default to Docker: project-only writable mount, no network or host
+credentials, and a fresh container per command. Pre-pull a trusted image; for real
+projects use a prepared image (prefer a digest) through `--container-image`.
+See [security and compatibility limits](security.md). The container runtime is required only on A.
+
+Podman can provide the local Docker-compatible endpoint: start `podman machine`,
+confirm it exposes `/var/run/docker.sock`, and put the real `docker` CLI on the
+relay process's PATH. PeerRelay still uses `--execution-backend docker`; a shell
+alias from `docker` to `podman` is not sufficient. No remote context or socket
+fallback is selected. `docker --host unix:///var/run/docker.sock version` should
+show the expected local Podman server. Preload the image in that same runtime.
+Podman 6.0.2 with Docker CLI 29.10.0 on Apple silicon has passed the runtime tests
+in [verification](verification.md). Other versions need the same acceptance check.
+Docker publishes a [standalone macOS CLI](https://docs.docker.com/engine/install/binaries/);
+Docker Desktop is not required for this Podman arrangement.
+
+If A deliberately wants unrestricted host commands, add
+`--execution-backend host --allow-host-credentials`. This permits access to relay
+secrets, provider logins and persistence; it is not a sandbox. A disposable HOME
+does not change that authority. Omit `--grant exec` for read-only or use `rw` for
+replacement proposals. Existing grants never upgrade automatically.
 
 Leave that terminal running. In another terminal, restore the same `RELAY`,
 `PROJECT`, and `PAIR` values before continuing. Allow inbound connections to
@@ -161,6 +189,10 @@ skills are loaded together. In an exec session Bob can run commands and make
 changes directly; Alice answers project questions in her original chat. The older
 proposal-only mode still uses the human-local approval CLI.
 
+Before either client setup, restrict local shell/file tools in the native client
+or run it in a restricted OS environment. A skill cannot protect either laptop
+from peer prompt injection. See [both-side restrictions](security.md#restrict-both-native-agents-local-tools).
+
 ### Codex
 
 ```sh
@@ -201,7 +233,7 @@ executable merely because it appears in a configuration file.
 
 1. Activate B's response mode first and keep that chat active.
 2. Activate A's requester skill and explicitly say: **Enable requester mode with
-   command execution on my registered workspace. I authorize this trusted-host session.**
+   command execution using my configured backend on the registered workspace.**
    Verify the returned workspace is the correct conversation checkout/worktree.
 3. Tell A: **Replace hello.txt with hello from B followed by a newline, create
    greeting.txt, and run commands that verify both files. Then ask me whether
@@ -209,8 +241,10 @@ executable merely because it appears in a configuration file.
 4. B executes on A directly. No per-file manual approval is needed. A receives
    compact command states and a brief summary. Check the files in A's editor.
 5. A's wait shows native elicitation if supported, otherwise a question in chat.
-   Answer it; the reply goes to B. If A's wait already ended, ask for progress or
-   resume to receive the pending question. Do not expect an idle chat to wake itself.
+   Answer it; the submit-and-follow call continues through further questions. For
+   longer tasks, configure timeouts or opt into Claude background delivery using
+   [follow-through setup](follow-through.md). Without that adapter, a timed-out
+   wait needs a resume request; do not create another task.
 6. Confirm B reports actual command exit codes and the requested result.
 7. Tell B: **Disconnect PeerRelay now.** Further tasks/commands must be refused.
    Disconnect also requests termination of managed command process groups; already
@@ -228,11 +262,16 @@ see [remote execution](remote-execution.md).
 - Stop A's relay with Ctrl-C. Restart it with the same `serve` command and state.
 - Restarting the relay revokes prior leases. B must explicitly reactivate response
   mode; interrupted tasks do not resume automatically.
-- For another project, create a fresh pair outside that project, transfer the new
-  responder bundle, update both client configurations, and restart the clients.
+- For a follow-up after reconnect, call `resume_requester_mode` with this chat's
+  original mode ID; retain permissions/context. Do not call `requester_mode` again
+  unless deliberately starting a new session. See [diagnostics](follow-through.md).
+- For another project, create a fresh pair outside that project using `pair`/`join`
+  (or transfer a legacy responder bundle), update both client configurations, and
+  restart the clients.
   Preserve the old journals rather than deleting them to bypass root binding.
-- The private certificate lasts 30 days. An expired certificate or changed LAN
-  address requires a fresh pairing with the correct host in this version.
+- The private certificate lasts 30 days. Expiry requires a fresh pair. A changed LAN
+  address requires updating both client URLs and the server bind address for spoken-code
+  pairs; legacy bundles require a new certificate/pair matching the new host.
 
 ## Troubleshooting
 

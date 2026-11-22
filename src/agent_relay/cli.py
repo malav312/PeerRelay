@@ -18,6 +18,13 @@ def main():
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
     init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
+    init.add_argument("--execution-backend", choices=("docker", "host"), default="docker")
+    init.add_argument(
+        "--allow-host-credentials",
+        action="store_true",
+        help="Acknowledge host exec can access relay/provider credentials and persist",
+    )
+    init.add_argument("--container-image", default="python:3.13-slim")
     init.add_argument("--project", required=True)
     init.add_argument("--pair-dir", required=True)
     init.add_argument(
@@ -28,6 +35,18 @@ def main():
     pair.add_argument("--project", required=True)
     pair.add_argument("--pair-dir", required=True, help="New or existing private pair folder")
     pair.add_argument("--grant", choices=("ro", "rw", "exec"), help="Default ro for a new pair")
+    pair.add_argument(
+        "--execution-backend",
+        choices=("docker", "host"),
+        help="Default docker for a new pair; existing backend is preserved",
+    )
+    pair.add_argument(
+        "--allow-host-credentials",
+        action="store_true",
+        default=None,
+        help="Acknowledge host exec exposes relay/provider credentials",
+    )
+    pair.add_argument("--container-image", help="Default python:3.13-slim for a new pair")
     pair.add_argument("--host", help="LAN address to use (default: detected)")
     pair.add_argument("--port", type=int, default=9443, help="Relay port; pairing uses port+1")
     pair.add_argument("--name", help="Name shown to the other person")
@@ -42,11 +61,21 @@ def main():
     serve.add_argument("--bind", help="Default is the configured host; one server process only")
     mcp = sub.add_parser("mcp", help="Run the local role-specific stdio MCP server")
     mcp.add_argument("--config", required=True)
+    mcp.add_argument("--background", choices=("off", "claude-channel"), default="off")
     args = parser.parse_args()
     if args.command == "init":
         print(
             json.dumps(
-                initialize(args.project, args.pair_dir, args.host, args.port, grant=args.grant),
+                initialize(
+                    args.project,
+                    args.pair_dir,
+                    args.host,
+                    args.port,
+                    grant=args.grant,
+                    execution_backend=args.execution_backend,
+                    allow_host_credentials=args.allow_host_credentials,
+                    container_image=args.container_image,
+                ),
                 indent=2,
             )
         )
@@ -65,6 +94,9 @@ def main():
                     port=args.port,
                     name=args.name,
                     advertise=not args.no_advertise,
+                    execution_backend=args.execution_backend,
+                    allow_host_credentials=args.allow_host_credentials,
+                    container_image=args.container_image,
                 )
             else:
                 pair_join(
@@ -104,7 +136,7 @@ def main():
 
         client = Client(config)
         try:
-            build_server(client).run(transport="stdio")
+            build_server(client, background=args.background).run(transport="stdio")
         finally:
             client.close()
 

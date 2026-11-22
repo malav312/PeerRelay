@@ -1,6 +1,7 @@
 import fcntl
 import hashlib
 import os
+import re
 import secrets
 import stat
 import threading
@@ -10,6 +11,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from agent_relay.journal import Journal
+from agent_relay.policy import blocked, ignore_patterns
 from agent_relay.schemas import CONTENT_LIMIT, Tool, payload_hash
 
 
@@ -26,7 +28,10 @@ def identity(st):
 
 
 def reserved(name):
-    return name.casefold().startswith((".peerrelay-create-", ".peerrelay-apply-", ".relay-write-"))
+    # Reserve both current and legacy private operation files, regardless of branding.
+    return name.casefold().startswith(".relay-write-") or bool(
+        re.match(r"\.[a-z][a-z0-9-]*-(?:create|apply)-", name, re.IGNORECASE)
+    )
 
 
 def version(st, data):
@@ -128,9 +133,21 @@ class Filesystem:
             raise Refused()
         return fd, expected[0], mode
 
+    def policy(self, alias):
+        root, _, _ = self.root(alias)
+        try:
+            return ignore_patterns(root)
+        except (OSError, ValueError, UnicodeError):
+            raise Refused() from None
+
+    def check_path(self, alias, path):
+        if blocked(path, self.policy(alias)):
+            raise Refused()
+
     @contextmanager
     def parent(self, alias, path):
         root, device, _ = self.root(alias)
+        self.check_path(alias, path)
         if path.startswith("/") or "\x00" in path:
             raise Refused()
         parts = path.split("/")
@@ -192,6 +209,7 @@ class Filesystem:
                 if os.fstat(fd).st_dev != device:
                     raise Refused()
                 entries = []
+                patterns = self.policy(tool.root)
                 scanned = 0
                 with os.scandir(fd) as iterator:
                     for entry in iterator:
@@ -199,7 +217,8 @@ class Filesystem:
                         if scanned > 10000:
                             break
                         st = entry.stat(follow_symlinks=False)
-                        if reserved(entry.name) or st.st_dev != device:
+                        child = entry.name if tool.path == "." else tool.path + "/" + entry.name
+                        if blocked(child, patterns) or reserved(entry.name) or st.st_dev != device:
                             continue
                         if stat.S_ISDIR(st.st_mode) or (
                             stat.S_ISREG(st.st_mode) and st.st_nlink == 1
@@ -289,6 +308,7 @@ class Filesystem:
         try:
             tool = Tool.model_validate(payload)
             _, _, mode = self.root(tool.root)
+            self.check_path(tool.root, tool.path)
             right = grants.get(tool.root)
             if right not in ("ro", "rw"):
                 raise Refused()

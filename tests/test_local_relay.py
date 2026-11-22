@@ -192,7 +192,14 @@ def test_local_cli_offline_inspect_digest_required_and_reject(paired):
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, result.stderr + result.stdout
+    assert result.returncode != 0
+    assert "interactive terminal" in result.stdout
+    from terminal_helpers import decision
+
+    result = decision(
+        command + ["--json", "reject", p["proposal_id"], "--digest", digest], "reject", digest
+    )
+    assert result.returncode == 0, result.stdout
     assert json.loads(result.stdout)["status"] == "rejected"
     assert (root / "hello.txt").read_bytes() == b"before\r\n"
 

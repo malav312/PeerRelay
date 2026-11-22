@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from pathlib import Path
 
 import pytest
 import test_mcp
@@ -32,6 +33,7 @@ def test_two_mcp_clients_execute_and_forward_elicitation(live_pair, action):
 
         def params(role):
             return StdioServerParameters(
+                env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
                 command=sys.executable,
                 args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / role / "client.json")],
             )

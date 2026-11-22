@@ -1,7 +1,7 @@
 # Local-human adaptation execution record
 
 Base: 1d6df0e. Plan: docs/superpowers/plans/2026-11-19-local-human-approval.md.
-Ruling: user explicitly approved implementing the tested upstream learning; execute inline
+Ruling: user explicitly approved implementing the tested upstream approach; execute inline
 without another design gate. Cost if wrong: compatibility choices may need revision.
 Ruling: preserve legacy missing-grant rw configs; new pairs default ro with explicit rw.
 No paired configuration is rewritten. Cost if wrong: an old rw grant remains wider than desired.

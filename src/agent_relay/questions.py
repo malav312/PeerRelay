@@ -3,6 +3,7 @@
 import json
 import uuid
 
+from .policy import reject_secret
 from .schemas import payload_hash
 
 
@@ -69,6 +70,7 @@ class Questions:
         return self.get(task, ident)
 
     def answer(self, task, ident, action, answer):
+        reject_secret(answer)
         old = self.get(task, ident)
         if old["state"] != "pending":
             if old["action"] != action or old["answer"] != answer:

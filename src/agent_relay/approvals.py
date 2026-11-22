@@ -10,6 +10,7 @@ import sqlite3
 import stat
 
 from agent_relay.filesystem import Changed, Refused, identity, version
+from agent_relay.policy import risk_warnings
 from agent_relay.schemas import CONTENT_LIMIT, Tool, canonical, payload_hash
 
 
@@ -148,6 +149,7 @@ class Approvals:
                 **self._result(row),
                 "root": tool.root,
                 "path": tool.path,
+                "risk_warnings": risk_warnings(tool.path),
                 "registered_root": row["binding"]["root_identity"][0],
                 "root_identity": row["binding"]["root_identity"],
                 "grants": row["binding"]["grants"],
