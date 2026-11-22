@@ -139,6 +139,9 @@ This command activates Bob's response lease after native startup checks; setup
 alone does not activate anything. Start Bob before Alice sends work.
 
 The launcher creates one owned app-server, exact thread, native terminal and lease.
+Permission overrides apply to the owned server and are checked before thread
+activation. The terminal attaches to that thread without repeating permission
+flags, which Codex remote resume rejects.
 It registers the existing responder MCP task handlers as native dynamic tools.
 Calls from another thread, with another lease, or to activation/background tools
 are rejected. Code watches for new work and answered questions; only those events

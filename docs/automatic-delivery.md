@@ -97,11 +97,16 @@ On macOS with Codex CLI available:
 PYTHONPATH=src .venv/bin/python scripts/probe_owned_codex.py
 ```
 
+Add `--terminal` to also attach a real native TUI through a disposable PTY. This
+checks remote-resume compatibility, the same thread and policy after attachment,
+and zero model turns. Only the empty disposable fixture directory is pretrusted;
+the probe does not answer approvals or send model prompts.
+
 The probe creates a credential-free native home and dummy unauthenticated localhost
 provider, denies outbound IP traffic with `sandbox-exec`, and permits metadata RPCs
 only. It verifies exact-thread resume, idle status, an empty turn history, exact
-terminal arguments, owned-server shutdown and socket cleanup. It does not launch
-the terminal or make a model call. An enclosing sandbox that disallows a nested
+terminal arguments, owned-server shutdown and socket cleanup. The default probe
+does not launch the terminal; neither mode makes a model call. An enclosing sandbox that disallows a nested
 sandbox or a Unix listener needs permission to run this isolated probe.
 
 The production transport passed this probe on Codex CLI 0.171.0 with zero turns.

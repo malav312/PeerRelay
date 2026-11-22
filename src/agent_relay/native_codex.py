@@ -174,8 +174,9 @@ async def wait_resumable(rpc, thread_id, *, timeout=10, interval=0.1):
 
 
 class OwnedCodexSession:
-    def __init__(self, directory, cwd, command):
+    def __init__(self, directory, cwd, command, terminal_command=None):
         self.directory, self.cwd, self.command = directory, cwd, tuple(command)
+        self.terminal_command = tuple(command if terminal_command is None else terminal_command)
         self.generation = str(uuid.uuid4())
         self.socket = directory / "s"
         self.socket_identity = None
@@ -190,6 +191,7 @@ class OwnedCodexSession:
         *,
         cwd,
         command=("codex",),
+        terminal_command=None,
         env=None,
         thread_options=None,
         timeout=10,
@@ -208,7 +210,7 @@ class OwnedCodexSession:
         if len(os.fsencode(directory / "s")) >= 104:
             raise ValueError("Choose a shorter private session directory for the Unix socket")
         directory.mkdir(mode=0o700)  # Must be new: never reuses another generation/socket.
-        session = cls(directory, cwd, command)
+        session = cls(directory, cwd, command, terminal_command)
         session.env = env
         try:
             with open(directory / "server.log", "xb") as log:
@@ -271,7 +273,7 @@ class OwnedCodexSession:
         if self.thread_id is None or self.server.returncode is not None:
             raise RuntimeError("Owned session is not ready")
         return [
-            *self.command,
+            *self.terminal_command,
             "resume",
             self.thread_id,
             "--remote",

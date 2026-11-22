@@ -154,6 +154,7 @@ def test_launcher_owns_exact_lease_and_cleans_up(tmp_path, monkeypatch, failure)
         async def start(cls, directory, **kwargs):
             events.append("native_started")
             assert "dynamicTools" in kwargs["thread_options"]
+            assert kwargs["terminal_command"] == ("codex",)
             assert kwargs["allow_turns"] and kwargs["experimental"]
             assert "response_mode" not in {
                 t["name"] for t in kwargs["thread_options"]["dynamicTools"]

@@ -95,7 +95,10 @@ def test_transport_server_request_stops_without_granting_approval():
     asyncio.run(run())
 
 
-def test_owned_lifecycle_waits_for_exact_thread_and_cleans_only_owned_process(monkeypatch):
+@pytest.mark.parametrize("restricted", [False, True])
+def test_owned_lifecycle_waits_for_exact_thread_and_cleans_only_owned_process(
+    monkeypatch, restricted
+):
     from agent_relay.native_codex import NativeRPC, OwnedCodexSession, RPCError
 
     class RPC:
@@ -148,12 +151,23 @@ def test_owned_lifecycle_waits_for_exact_thread_and_cleans_only_owned_process(mo
 
     async def run():
         with tempfile.TemporaryDirectory(prefix="pr-test-", dir="/private/tmp") as tmp:
-            session = await OwnedCodexSession.start(Path(tmp) / "native", cwd=tmp, timeout=1)
+            options = {}
+            if restricted:
+                options = {
+                    "command": ("codex", "-c", 'approval_policy="never"'),
+                    "terminal_command": ("codex",),
+                }
+            session = await OwnedCodexSession.start(
+                Path(tmp) / "native", cwd=tmp, timeout=1, **options
+            )
             socket = session.socket
             assert rpc.attempts == 3
             assert session.thread_id == "exact-thread"
             assert session.resume_argv()[1:3] == ["resume", "exact-thread"]
             assert "unix://" + str(socket) in session.resume_argv()
+            assert "-c" not in session.resume_argv()
+            if restricted:
+                assert 'approval_policy="never"' in argv
             assert (session.directory.stat().st_mode & 0o777) == 0o700
             assert session.generation
             await session.close()

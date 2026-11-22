@@ -225,6 +225,9 @@ async def run_responder(config_path, directory):
             directory / "native",
             cwd=work,
             command=command,
+            # Remote resume inherits the owned server/thread policy. Codex rejects
+            # permission overrides on the attaching terminal command.
+            terminal_command=(command[0],),
             allow_turns=True,
             experimental=True,
             tool_handler=bridge.handle,
