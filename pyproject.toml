@@ -6,7 +6,15 @@ name = "peer-relay"
 version = "0.1.0"
 description = "Local MCP requester and responder modes with approved remote writes"
 requires-python = ">=3.13"
-dependencies = ["mcp>=1.20,<2", "fastapi>=0.115,<1", "httpx>=0.28,<1", "uvicorn>=0.34,<1", "cryptography>=44"]
+dependencies = [
+    "mcp>=1.20,<2",
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "uvicorn>=0.34,<1",
+    "cryptography>=44",
+    "spake2>=0.9",
+    "zeroconf>=0.136",
+]
 [project.scripts]
 peer-relay = "agent_relay.cli:main"
 [dependency-groups]
@@ -20,3 +28,6 @@ select = ["E", "F", "I"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_relay"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"plugins" = "agent_relay/_skills"

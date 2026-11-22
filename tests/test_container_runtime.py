@@ -227,3 +227,79 @@ os._exit(17)
         for name in names:
             if docker("ps", "-aq", "--filter", "name=^" + name + "$").strip():
                 docker("rm", "--force", name)
+
+
+def test_spoken_pair_runs_real_container_over_pinned_tls(tmp_path):
+    import socket
+    import sys
+
+    import httpx
+    from test_pairing import Host, join
+
+    from agent_relay.client import Client, load
+    from agent_relay.setup import initialize_host
+
+    root = tmp_path / "project"
+    root.mkdir()
+    pair = tmp_path / "pair"
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    initialize_host(root, pair, "127.0.0.1", port, grant="exec")
+    with Host(tmp_path, grant=None, backend=None) as host:
+        offer, _ = join(tmp_path, host.address)
+    assert host.error is None
+    assert offer["execution_backend"] == "docker"
+    process = subprocess.Popen(
+        [sys.executable, "-m", "agent_relay.cli", "serve", "--config", str(pair / "server.json")],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    alice = Client(load(pair / "requester/client.json"))
+    bob = Client(load(tmp_path / "bob/client.json"))
+    try:
+        for _ in range(100):
+            if process.poll() is not None:
+                pytest.fail("Relay startup failed: " + process.stderr.read().decode()[-2000:])
+            try:
+                if (
+                    bob.http.get(
+                        "/healthz",
+                        headers={"Authorization": "Bearer " + bob.token_file.read_text().strip()},
+                    ).status_code
+                    == 200
+                ):
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.05)
+        else:
+            pytest.fail("Paired relay startup timed out")
+        mode = alice.call("requester_mode", {"execution": True})["mode_id"]
+        lease = bob.call("response_mode", {})["lease_id"]
+        task_id = alice.call("submit", dict(mode_id=mode, operation_id="t", prompt="write"))[
+            "task_id"
+        ]
+        bob.call("claim", dict(lease_id=lease))
+        common = dict(lease_id=lease, task_id=task_id)
+        job = bob.call(
+            "execute", dict(**common, operation_id="x", command="printf paired > result")
+        )
+        for _ in range(200):
+            result = bob.call("command_status", dict(**common, command_id=job["command_id"]))
+            if result["state"] not in ("queued", "starting", "running"):
+                break
+            time.sleep(0.05)
+        assert result["state"] == "exited" and result["exit_code"] == 0, result
+        assert (root / "result").read_text() == "paired"
+        bob.call("disconnect", dict(lease_id=lease))
+    finally:
+        alice.close()
+        bob.close()
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stderr.close()

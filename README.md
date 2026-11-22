@@ -7,7 +7,8 @@ project/worktree. Each person uses their own signed-in client. PeerRelay makes n
 provider/model calls. Host exec can nevertheless expose provider credentials; see
 the [security boundaries and tradeoffs](docs/security.md).
 
-Follow the [two-laptop setup guide](docs/setup.md). Python 3.13+, uv, Git and a
+Follow the [two-laptop setup guide](docs/setup.md). This pairing branch has
+[automated integration results](docs/pairing-verification.md); [PR #2](https://github.com/malav312/PeerRelay/pull/2) remains unmerged. Python 3.13+, uv, Git and a
 signed-in native client are required on each laptop; current support is macOS/Linux.
 This is an experimental developer preview. Both people can clone the public
 repository; pairing credentials and journals must stay private. Mixed Codex/Claude
@@ -15,10 +16,11 @@ native sessions still need live acceptance testing.
 
 ## Full coding sessions
 
-1. Alice initializes a pair outside her project with `--grant exec`, then starts
-   the HTTPS relay. New exec pairs default to Docker command isolation. Preinstall
-   Docker and a trusted image; no network or host credential mounts are provided.
-2. Alice privately transfers only the generated `responder/` bundle to Bob.
+1. Alice runs `peer-relay pair --grant exec` outside her project and reads the
+   spoken code aloud; Bob runs `peer-relay join` and types it (same Wi-Fi,
+   SPAKE2, nothing secret transferred). Alice then starts the HTTPS relay.
+   `exec` defaults to project-only Docker containers with no network.
+2. Alternatively, use `init` plus a privately transferred `responder/` bundle.
 3. Each installs its role's MCP configuration and skill. Bob activates response
    mode; Alice activates requester mode with explicit execution authorization.
 4. Alice gives a task. Bob reads files and uses remote commands to create/edit/
@@ -113,8 +115,10 @@ code-executing targets; interactive confirmation is not proof of a human.
 
 Private journals contain task text, questions/replies, command text/output and file
 proposals. There is no automatic retention scheduler in this version. Protect them
-and their backups. The generated certificate lasts 30 days; address/certificate
-changes require a fresh pairing. Keep old journals rather than bypassing root binding.
+and their backups. The generated certificate lasts 30 days; expiry requires a fresh
+pairing. Spoken-code clients pin the certificate; update their URL and the server
+bind address when DHCP changes. Legacy bundles also check the hostname. Keep old
+journals rather than bypassing root binding.
 
 See [execution details](docs/remote-execution.md) and [verification](docs/verification.md).
 The tests use disposable projects and real TLS/MCP processes, not live provider tasks.

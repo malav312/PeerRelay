@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import hmac
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Event, Thread
@@ -9,15 +11,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .audit import AuthAudit
-from .client import private_file
+from .client import load, private_file
 from .filesystem import Changed, Refused
 from .service import Denied, Relay
 
 
 class Boundary:
-    def __init__(self, app, tokens):
+    def __init__(self, app, digests):
         self.app = app
-        self.tokens = tokens
+        self.digests = digests
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -26,11 +28,12 @@ class Boundary:
             return await JSONResponse({"error": "https_required"}, 426)(scope, receive, send)
         headers = [v for k, v in scope.get("headers", []) if k.lower() == b"authorization"]
         supplied = headers[0] if len(headers) == 1 else b""
+        presented = hashlib.sha256(supplied.removeprefix(b"Bearer ")).hexdigest()
         role = next(
             (
                 r
-                for r, t in self.tokens.items()
-                if hmac.compare_digest(supplied, ("Bearer " + t).encode())
+                for r, digest in self.digests.items()
+                if supplied.startswith(b"Bearer ") and hmac.compare_digest(presented, digest)
             ),
             None,
         )
@@ -79,10 +82,19 @@ def create_app(config):
         path = Path(path).resolve(strict=True)
         if path == root or root in path.parents:
             raise ValueError("Private configuration/credentials overlap the project")
-    tokens = {
-        role: private_file(path).read_text().strip() for role, path in config["tokens"].items()
+    # Only digests are kept in memory. Spoken-code pairing stores just the digest of
+    # Bob's self-generated token, so Alice's disk never holds Bob's credential.
+    digests = {
+        role: hashlib.sha256(private_file(path).read_text().strip().encode()).hexdigest()
+        for role, path in config["tokens"].items()
     }
-    if set(tokens) != {"requester", "responder"} or len(set(tokens.values())) != 2:
+    for role, digest in config.get("token_sha256", {}).items():
+        if role in digests or not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
+            raise ValueError("Invalid stored credential digest")
+        digests[role] = digest
+    if "responder" not in digests:
+        raise ValueError("No responder is paired yet; run `peer-relay pair` first")
+    if set(digests) != {"requester", "responder"} or len(set(digests.values())) != 2:
         raise ValueError("Separate paired credentials required")
 
     execution_config = None
@@ -111,6 +123,12 @@ def create_app(config):
             grant=config.get("grant", "rw"),
             execution_backend=execution_config,
         )
+        try:
+            if "_path" in config and load(config["_path"]) != config:
+                raise ValueError("Relay configuration changed during startup; restart serve")
+        except BaseException:
+            relay.close()
+            raise
         app.state.relay = relay
         app.state.audit = AuthAudit(relay.state)
         stop = Event()
@@ -132,7 +150,7 @@ def create_app(config):
             app.state.audit.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    app.add_middleware(Boundary, tokens=tokens)
+    app.add_middleware(Boundary, digests=digests)
 
     @app.get("/healthz")
     def health():

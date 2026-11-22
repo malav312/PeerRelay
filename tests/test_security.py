@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 
 import pytest
@@ -93,7 +94,13 @@ def test_unauthenticated_request_is_rejected_before_body_receive():
     async def inner(*args):
         raise AssertionError("unauthenticated request reached application")
 
-    app = Boundary(inner, tokens={"requester": "a", "responder": "b"})
+    app = Boundary(
+        inner,
+        digests={
+            r: hashlib.sha256(t.encode()).hexdigest()
+            for r, t in (("requester", "a"), ("responder", "b"))
+        },
+    )
     asyncio.run(
         app(
             {"type": "http", "scheme": "https", "headers": [], "client": ("127.0.0.1", 1)},
@@ -182,7 +189,13 @@ def test_body_deadline_does_not_wait_for_client_forever():
     async def inner(*args):
         raise AssertionError("timed out body reached app")
 
-    app = Boundary(inner, tokens={"requester": "a", "responder": "b"})
+    app = Boundary(
+        inner,
+        digests={
+            r: hashlib.sha256(t.encode()).hexdigest()
+            for r, t in (("requester", "a"), ("responder", "b"))
+        },
+    )
     asyncio.run(
         app(
             dict(type="http", scheme="https", headers=[(b"authorization", b"Bearer a")]),

@@ -32,6 +32,56 @@ If you already have the source, enter that directory and start at `uv sync`.
 Keep `RELAY` set to this laptop's absolute repository path in subsequent commands.
 Each laptop builds its own virtual environment. No provider API key is required.
 
+## Quick path: pair with a spoken code (same Wi-Fi)
+
+This replaces steps 2 and 3 below. No file is transferred and no secret is sent
+over chat. Both laptops need to be on the same network and on this pairing branch.
+With `--grant exec`, install/start Docker (or the Podman setup below) and pre-pull
+`python:3.13-slim` on A before serving. The default is a project-only writable
+container mount, no network and no host credentials. Dependencies must be in the
+image. The pairing screen tells both people which backend is selected.
+
+For deliberate unrestricted host execution, `pair` accepts
+`--execution-backend host --allow-host-credentials`, just like `init`. Read the
+[security tradeoffs](security.md) first. Omit `--grant exec` for read-only access.
+
+On A, from the `PeerRelay` folder:
+
+```sh
+"$RELAY/.venv/bin/peer-relay" pair --project /absolute/path/to/project \
+  --pair-dir /absolute/path/to/private-pair --grant exec
+```
+
+A sees a code such as `7-orbit-lantern` and reads it aloud. On B:
+
+```sh
+"$RELAY/.venv/bin/peer-relay" join --dir /absolute/path/to/new-private-folder
+```
+
+B types the code. B's screen shows A's device name, the project and the access
+level. Both screens show the same six-digit check number; each person confirms.
+A then starts the relay with the `serve` command it prints. Continue at step 4
+for repeatable native client setup; pairing alone does not finish client setup.
+
+How it works:
+
+- The number before the words is a public channel. It only picks A's pairing
+  advertisement (mDNS) when several people pair on one network. A avoids
+  channels that are already in use.
+- The two words are the password for a SPAKE2 key exchange. A wrong guess
+  reveals nothing useful offline. Each code allows 3 attempts and expires after
+  5 minutes; afterwards run `pair` again for a new code.
+- B generates its own responder token and sends it encrypted. A stores only
+  its SHA-256, so A's disk never holds B's credential.
+- B pins A's certificate, so a new DHCP address does not break the pairing;
+  update `url` in both client configs and the server bind address if A's address changes.
+- mDNS is advertised only while the code is open. If a network blocks it
+  (common on guest or office Wi-Fi), use the `join --address HOST:PORT` line
+  shown on A's screen. Pairing uses the relay port + 1 (default 9444).
+- Running `pair` again on an existing pair folder replaces the responder and
+  keeps the access level, execution backend, image and credential acknowledgement.
+  Changing these options requires a new pair folder. Stop `serve` first.
+
 ## 2. A: create a demo project and pair
 
 In A's terminal, choose a new demo directory:
@@ -107,6 +157,17 @@ Keep the relative paths in B's `client.json`. B does not need A's project copy,
 requester token, server configuration, or TLS private key.
 
 ## 4. Configure each local client
+
+Use [fresh native client setup](client-sessions.md) for the next acceptance test.
+It generates the correct role skill and MCP configuration for either client, plus
+a dedicated Claude launcher with built-in tools disabled. Codex gets setup files
+and an explicit unresolved restriction checkpoint; no automatic launcher is
+provided until equivalent controls are verified. All four client combinations
+are supported by the protocol, independently of role.
+
+The manual instructions below remain available for existing installations. They
+install integration files **only**; they do not enforce local-tool restrictions.
+Restarting an unrestricted client does not itself resolve that checkpoint.
 
 Do this once on each laptop. Select the appropriate role values:
 
@@ -215,11 +276,13 @@ see [remote execution](remote-execution.md).
 - For a follow-up after reconnect, call `resume_requester_mode` with this chat's
   original mode ID; retain permissions/context. Do not call `requester_mode` again
   unless deliberately starting a new session. See [diagnostics](follow-through.md).
-- For another project, create a fresh pair outside that project, transfer the new
-  responder bundle, update both client configurations, and restart the clients.
+- For another project, create a fresh pair outside that project using `pair`/`join`
+  (or transfer a legacy responder bundle), update both client configurations, and
+  restart the clients.
   Preserve the old journals rather than deleting them to bypass root binding.
-- The private certificate lasts 30 days. An expired certificate or changed LAN
-  address requires a fresh pairing with the correct host in this version.
+- The private certificate lasts 30 days. Expiry requires a fresh pair. A changed LAN
+  address requires updating both client URLs and the server bind address for spoken-code
+  pairs; legacy bundles require a new certificate/pair matching the new host.
 
 ## Troubleshooting
 

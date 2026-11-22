@@ -41,6 +41,14 @@ def load(path):
     return config
 
 
+def context(config):
+    # Only the paired certificate is trusted (no system roots are loaded with cafile).
+    tls = ssl.create_default_context(cafile=config["ca_file"])
+    if config.get("pin") is True:
+        tls.check_hostname = False  # Pinned anchor; Alice's LAN address may change.
+    return tls
+
+
 class Client:
     def __init__(self, config):
         parsed = urlsplit(config["url"])
@@ -60,7 +68,7 @@ class Client:
         self.token_file = private_file(config["token_file"])
         self.http = httpx.Client(
             base_url=config["url"],
-            verify=ssl.create_default_context(cafile=config["ca_file"]),
+            verify=context(config),
             trust_env=False,
             follow_redirects=False,
             timeout=10,
