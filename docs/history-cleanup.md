@@ -8,7 +8,9 @@ separate work.
 The published `main` and `feat/spoken-code-pairing` branches have sanitized ancestry
 without unrelated application references or personal filesystem paths. The obsolete
 `codex/requester-response` and `codex/follow-security` branches were removed with the
-maintainer's approval. PR #1 targets `main` and remains unmerged. Required copyright
+maintainer's approval. [PR #2](https://github.com/malav312/PeerRelay/pull/2) targets
+`main` and remains a draft for live acceptance. GitHub automatically closed PR #1
+on the ancestry rewrite; its original discussion remains available there. Required copyright
 and source attribution remain in
 `LICENSE` and `NOTICE`. The pairing PR's ordinary English code-word vocabulary is
 not a project reference.
