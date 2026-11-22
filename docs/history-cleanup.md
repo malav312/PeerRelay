@@ -5,8 +5,10 @@ The spoken-code pairing PR is kept separate until its integration and acceptance
 tests pass. The publishing connector and heartbeat recovery improvements are also
 separate work.
 
-Published branch history was rewritten to remove unrelated application references
-and personal filesystem paths. Required copyright and source attribution remain in
+The new `main` branch has sanitized ancestry without unrelated application references
+or personal filesystem paths. Existing published feature branches still retain their
+old history; rewriting those branches and PR ancestry requires separate explicit
+approval. Required copyright and source attribution remain in
 `LICENSE` and `NOTICE`. The pairing PR's ordinary English code-word vocabulary is
 not a project reference.
 
