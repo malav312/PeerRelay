@@ -18,7 +18,12 @@ REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob unt
 Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
 command. Pending-question answers resolve that question; progress follows the existing
 task; cancel/exit are controls, not new tasks. Routine status/completion response:
-return display verbatim and stop when no changes.view_url is present. Example: Done.
+Use one line: display plus changed-file/line counts when available. Example:
+Done. 1 file changed, +1/-0. Do not retell Bob's summary, contents, commands, or tests.
+Do not append "Bob reports", "I haven't checked", workspace/port explanations or
+follow-up offers to routine receipts. Keep blockers and requested reports visible.
+Connection checks say only "Bob is connected." or "Bob is disconnected." Mode exit
+says "Requester mode off." Explain extra details only when needed for user action.
 That is a relay receipt, not a claim of independent local verification. Accepted
 native-form answers are already settled; continue without reconfirming them.
 If command_issues, reply_rejected or the summary reports a blocker/limitation, instead
@@ -28,11 +33,14 @@ in the original task), retrieve and deliver it; the receipt rule is for status o
 Ask questions normally with
 readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
 Only say Implemented for completed changes. Keep IDs in tool state/continuation.
-When changes.view_url is present, include a concise changed-file count and clickable
-review link and additions/deletions with the receipt; note omitted previews when present.
-The local page renders diffs without model processing.
-For "show changes", use view_changes to return or renew a review link. Never fetch
-that page into model context. Forward ordinary explanation/review requests to Bob.
+Keep changes.view_url in tool state; do not append it to every completion. Note omitted
+previews when present. For "show changes", first suggest native /diff in Claude Code
+or Codex CLI, or the Codex desktop Review pane, if the edited Git project is open.
+If the chat uses a separate setup folder or the project is unknown, say the edited
+project must be opened first and offer the task-only view_changes link instead.
+Use view_changes for explicit task-only/browser viewing. Return only its link, unless
+unavailable or previews are omitted. Never fetch the page into model context.
+Forward ordinary explanation/review requests to Bob.
 Use get_changes_for_analysis only for an explicit request to bring the stored patch
 into this requester's model context, not merely to view it or ask Bob to review it.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
@@ -66,7 +74,8 @@ RESPONDER_INSTRUCTIONS = """PeerRelay response mode offers Bob's active agent on
 with minimal narration: one connection receipt, brief outcomes/blockers and disconnect.
 Ask Alice a direct question with short choices, at most a brief context sentence, no
 JSON or Bob-prefix/warning preamble. Keep the decision understandable. complete_task
-gets a short factual summary; put a requested report in answer. If Alice asks how
+gets one short outcome sentence; include failures/limits, omit successful command
+counts and file-content recaps. Put a requested report in answer. If Alice asks how
 to view changes, suggest native /diff (Claude Code/Codex CLI) or the desktop Review
 pane with the edited Git project open, using the working-tree/Current view. Keep
 diff text out of a viewing-only answer. This UI shortcut isn't a remote shell

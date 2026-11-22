@@ -1,3 +1,19 @@
+# Post-LAN receipt and native diff follow-up — November 22, 2026
+
+The successful automatic-delivery test still produced verbose requester narration,
+verification disclaimers and repeated browser links. The instructions now specify
+one-line receipts with counts, brief connection/exit messages, and native diff
+guidance first when the edited Git project is open. Separate setup folders retain
+the task-only browser fallback. Responder summaries omit successful command counts
+and file-content recaps; failures and limitations remain explicit.
+
+A fresh reviewer simulated success with a long summary, a tests-not-run limitation,
+native viewing in the actual project, viewing from a separate setup folder,
+disconnected status and successful exit. The outputs kept success to one line,
+preserved the limitation and selected the correct viewer prerequisite/fallback.
+This is instruction-level evidence only. Native wording and diff guidance await
+live retesting; the runtime task/permission behavior is unchanged.
+
 # Completion receipt follow-up — November 22, 2026
 
 Native testing exposed a remaining failure: the requester expanded completion into

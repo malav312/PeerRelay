@@ -41,9 +41,12 @@ not consent. Otherwise give one short receipt and await progress/resume. Do not
 promise idle Codex will wake itself. Restart needs explicit watch registration.
 
 Routine response contract:
-- Reply with display alone (e.g. Done.). With changes.view_url, add file/line counts
-  and review link; note omitted previews. This receipt is not independent verification.
-  Say Implemented only for completed changes.
+- One line: display plus available file/line counts, e.g. "Done. 1 file changed, +1/-0."
+  No summary retelling, command/test recaps, "Bob reports", "I haven't checked",
+  workspace/port explanations or follow-up offers. Note omitted previews. This is
+  a receipt, not independent verification. Say Implemented only for completed changes.
+- Connection checks: "Bob is connected." / "Bob is disconnected." Exit:
+  "Requester mode off." Add detail only when needed for user action.
 - command_issues, reply_rejected or summary blockers/limits override success:
   state the issue and needed action briefly, including uncertain effects.
 - Pending proposals: “Proposal ready for review.” Proposed is not applied.
@@ -52,17 +55,15 @@ Routine response contract:
   get_result. Short receipts apply only to status. Requested command history uses
   task_status(details=true).
 
-For “show changes” or viewing only, share changes.view_url or call view_changes
-for the task's read-only link. Never fetch its page into model context. If no
-review is available, say so; do not silently fetch/analyze a patch.
-Literal `/diff` is native UI, never a task for Bob or a shell command. For a native
-viewer request, point to `/diff` in Claude Code/Codex CLI or Review in Codex desktop,
+For “show changes”, suggest `/diff` in Claude Code/Codex CLI or desktop Review,
 using working-tree/Current for external edits. The edited Git project must be open.
-A separate setup folder/unknown project needs that project opened first; do not
-claim the panel is open. Requests to explain/analyze/review changes still go to Bob
-through PeerRelay. Only an explicit request to load the stored patch into requester
-model context permits get_changes_for_analysis; “review changes” alone does not.
-Do not infer local analysis from a review request; viewing alone needs no patch fetch.
+For a separate setup folder/unknown project, state that prerequisite and provide
+view_changes as fallback. Explicit task-only/browser viewing returns only its link,
+except unavailable/omitted-preview notices. Keep links out of routine completions.
+Never fetch the page into model context. `/diff` is native UI, never a Bob task or
+shell command; do not claim the panel opened. Explanation/review requests go to Bob.
+Only explicit permission to load the stored patch into requester model context
+permits get_changes_for_analysis; viewing or “review changes” alone does not.
 
 In exec Bob edits the configured workspace. Docker restricts mounts/network; host
 exec exposes relay/provider credentials despite disposable HOME. Denial never

@@ -50,13 +50,15 @@ the established test combination, Alice uses Claude Code and Bob uses Codex.
 5. Resume Bob if needed. Answer `custom.txt` in Alice's native form. The question
    should be readable, without JSON or repeated warnings. The answered form should
    not be echoed or reconfirmed in chat.
-6. On completion, expect a short receipt, changed-file/line counts and a review
-   link. Open the link yourself. Expanding `integration-demo/custom.txt` should show
-   its contents; `baseline.txt` must not appear. Viewing the page should not invoke
+6. On completion, expect one line: “Done.” plus changed-file/line counts. Ask for
+   the task-only changes link and open it yourself. Expanding
+   `integration-demo/custom.txt` should show its contents; `baseline.txt` must not appear. Viewing the page should not invoke
    a model tool or paste the patch into chat.
 7. Ask `Add "follow-up passed" as the second line and verify both lines.` The same
    requester mode should route the task. Its new review should show only that task's
-   additions. Ask `Show changes` to obtain a link, then ask `Explain those changes`
+   additions. Ask `Show changes`: expect native `/diff` guidance when the edited
+   project is open, or the project prerequisite and task-only link otherwise.
+   Then ask `Explain those changes`
    to verify that analysis is sent to Bob and the requested answer is delivered.
 8. If using native `/diff`, open the actual edited Git project. The setup chat
    folder is not that project. Native UI is a separate viewer, not a relay task or
@@ -110,3 +112,17 @@ test establishes signed-in model/tool behavior and terminal delivery, which thos
 tests cannot prove. Record client versions, task/answer pickup, follow-ups and
 disconnect separately. See [client sessions](client-sessions.md#dedicated-automatic-codex-responder-experimental)
 for the exact native restrictions and remaining local-read limitation.
+
+## Reported LAN acceptance (2026-11-22)
+
+The user reported the expected integration commit installed and passed automatic
+initial pickup, question/custom answer, automatic resume, follow-up pickup,
+baseline exclusion, independent file verification and disconnect. No manual wakes
+or errors were reported. This is user-reported live acceptance, not a token benchmark.
+
+Requester narration remained too long and the link did not provide the desired
+native diff experience. The subsequent instruction update specifies one-line
+receipts and native diff guidance first. Those presentation changes await live
+retesting. Setup still uses a separate chat directory; opening the actual project
+by default is follow-up work. Routine summaries remain available to the model so
+blockers are not hidden; a structured outcome format is needed before reducing them.

@@ -30,7 +30,10 @@ This is specified in the native role instructions; deterministic input intercept
 is a separate integration task.
 
 Routine status uses the returned display: “Working.” or “Done.”. Completed execution
-tasks with an available review add changed-file/line counts and a review link.
+tasks with an available review add changed-file/line counts on the same line.
+Review links stay in tool state until requested. No routine summary retelling,
+verification disclaimer, workspace recap or follow-up offer. Connection checks
+return “Bob is connected.” / “Bob is disconnected.”; exit returns “Requester mode off.”
 “Done.” acknowledges relay completion; it does not assert independent requester
 verification. The requester does not narrate command counts or reconfirm an accepted
 native answer. A question is shown only when input is needed. Failed
@@ -46,7 +49,9 @@ reduces routine tool text; native token savings have not been measured.
 
 The [read-only changes viewer](changes-review.md) shows a frozen task-interval diff
 in the browser. Ordinary status returns counts and a link, not filenames or patch
-text. Native `/diff` remains a client shortcut when the edited project is open.
+text. For “show changes”, prefer native `/diff` when the edited project is open.
+For a separate setup folder, explain that prerequisite and offer the task-only link.
+Explicit task-only/browser viewing returns the link. No panel is opened by the skill.
 Requests to explain or review changes still go to Bob through the relay.
 
 ## 2. Pairing from mode commands

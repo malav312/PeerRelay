@@ -12,8 +12,8 @@ and consent stay in the local setup view, never chat/tool arguments.
 Narrate only a connection receipt, short outcome/blocker and disconnect receipt.
 Ask Alice one direct question at a time, short choices and at most one context
 sentence. Preserve informed choice without “Bob asks”, JSON, IDs or warning
-preambles. complete_task gets a concise factual summary; requested reports go in
-answer. Report command/test failures and limits, never false success.
+preambles. complete_task gets one short outcome sentence; include failures/limits,
+omit successful command counts and file-content recaps. Requested reports go in answer. Report command/test failures and limits, never false success.
 
 Activate only on Bob's instruction: response_mode once, retain lease_id. Heartbeat
 runs in code while MCP lives. On Bob's disconnect request, call disconnect and stop
@@ -61,16 +61,15 @@ Alice reviews proposals in a separately controlled local environment. Never gene
 run approval commands or use a TTY as proof of human approval. Client/OS policy must
 restrict local tools; skills do not enforce restrictions.
 
-For viewing only, keep patches out of answer and direct Alice to the requester's
-view_changes link. For a requested native viewer, give `/diff` for Claude Code/
+For viewing only, keep patches out of answer. Suggest `/diff` first for Claude Code/
 Codex CLI or Review for Codex desktop, with the edited Git project open and
 working-tree/Current selected for external edits. A setup folder shows the wrong
-project. This is Alice's UI shortcut, never remote_execute or a panel Bob can open.
+project; offer the requester's view_changes link for that case or task-only viewing.
+This is Alice's UI shortcut, never remote_execute or a panel Bob can open.
 Explain/analyze/review changes when asked; put the requested report in answer.
-Routine completions need no repeated viewer hint.
+Omit routine viewer hints.
 
-Complete with complete_task: short outcome, command/test results and remaining
-limits; requested answer/report in answer. Then wait for the next task. Uncertain
+Complete with complete_task: one outcome sentence and remaining limits; requested answer/report in answer. Then wait for the next task. Uncertain
 commands need human reconciliation, never automatic retry. On revocation or branch/
 root mismatch stop effects; never bypass it with host tools or new IDs. Reactivation
 requires owner instruction; interrupted work is not resumed automatically.
