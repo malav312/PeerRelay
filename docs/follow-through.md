@@ -32,7 +32,19 @@ record. Retrying submission uses the same operation ID and identical prompt.
 Cancellation of a wait leaves remote work running; `cancel_task` explicitly stops
 that task. An unanswered or timed-out form remains pending, never auto-approved.
 
-Without form support, the call returns `needs_input` with Bob's labeled question.
+While requester mode is active, ordinary user messages are tasks; they do not need
+to repeat “use PeerRelay.” Replies to pending questions, progress, cancellation and
+mode exit are routed to the existing controls. This is role instruction behavior,
+not a guarantee that a native client intercepts every message before model work.
+
+Routine output is one short status or result. Questions use plain text and numbered
+choices with a free-text answer; native clients control the actual layout. No JSON,
+internal IDs or repeated peer warnings belong in normal chat. `display` provides a
+brief status; command issues and rejected replies must still be surfaced. Compact
+status includes command counts and exceptional outcomes. `task_status(details=true)`
+returns full command history; `get_result` returns the full answer on request.
+
+Without form support, the call returns `needs_input` with the question and choices.
 Alice's agent displays it and waits for Alice, then forwards her actual response
 with `answer_question` and calls `follow_task`. A rejected credential-shaped answer
 stays pending. If a wait expires, it returns `waiting` and durable resume IDs.

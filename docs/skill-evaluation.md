@@ -1,3 +1,22 @@
+# Conversation behavior checks — November 21, 2026
+
+The user's native screenshots established the baseline: verbose JSON embedded in
+elicitation, repeated peer warnings, internal question IDs and verbose fallback.
+After the presentation and role-instruction changes, a fresh reviewer simulated
+seven cases against both client skill sets: ordinary task without a relay keyword,
+custom pending-question answer, progress request, verified success, interrupted
+uncertain execution, responder question followed by failed tests, and explicit exit.
+All routed to the expected existing tools with brief factual text, without local
+fallback, repeated questions, displayed IDs or false success claims.
+
+These are behavior simulations, not native client acceptance or token measurements.
+The real SDK integration tests separately verify readable questions, Unicode custom
+answers, no answered-question echo and preserved task identity. The follow tests
+also verify accept, decline and cancel responses without returning to the model
+between questions.
+
+---
+
 # Execution mode skill checks — November 20, 2026
 
 Five independent fresh-context baseline probes read the previous role skills and

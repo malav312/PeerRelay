@@ -111,7 +111,7 @@ def test_two_mcp_clients_execute_and_forward_elicitation(live_pair, action):
                         )
                     )
                 else:
-                    assert received and "Choose a colour" in received[0]
+                    assert received == ["Choose a colour\n\n1. blue\n2. green"]
                     assert result["question_response"]["action"] == action
                 response = decode(
                     await b.call_tool(

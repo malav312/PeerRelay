@@ -11,8 +11,17 @@ from mcp.types import ToolAnnotations
 from .background import ChannelServer, Watches
 from .follow import RequesterAnswer, capabilities, follow, question_message
 from .policy import reject_secret, untrusted
+from .presentation import task_view
 
 REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob until exit.
+Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
+command. Pending-question answers resolve that question; progress follows the existing
+task; cancel/exit are controls, not new tasks. Keep routine chat output to one short
+line: Working, Need your input, or the verified outcome. Ask questions normally with
+readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
+Use display for concise status, but surface command_issues, reply_rejected and blockers.
+Only say Implemented for completed changes. Keep IDs in tool state/continuation.
+Details/diffs are on request; task_status(details=true) retrieves full command history.
 Activate requester_mode once; execution=true only on Alice's explicit authorization
 and an exec pair. Verify workspace and run requester_diagnostics. Retain mode_id in
 this chat and continuation summaries. Follow-ups and responder reconnects MUST reuse
@@ -21,7 +30,7 @@ borrow another chat's mode or silently replace a lost ID with a proposal-only mo
 Forward exact task text with submit_and_follow and a stable operation_id. Waiting
 and successive native questions stay in code. Use the configured wait budget (50s
 by default); on timeout retain resume IDs. follow_task resumes without resubmission.
-For unsupported forms or rejected secret-like replies, display the labeled question
+For unsupported forms or rejected secret-like replies, display the normal question
 and forward only Alice's real answer with answer_question, then follow_task.
 Do not fabricate consent. Questions are not new tasks. Do not send secrets.
 Optional Claude background events contain IDs only: acknowledge_event then follow_task.
@@ -35,6 +44,10 @@ exposes relay/provider credentials. Cancel/exit when asked. Never replay uncerta
 work or reconnect automatically. Native model usage is real and unmeasured."""
 
 RESPONDER_INSTRUCTIONS = """PeerRelay response mode offers Bob's active agent only
+with minimal narration: one connection receipt, brief outcomes/blockers and disconnect.
+Ask Alice a direct question with short choices, at most a brief context sentence, no
+JSON or Bob-prefix/warning preamble. Keep the decision understandable. complete_task
+gets a short factual summary; put a requested report in answer. Activation happens
 on Bob's instruction. Call response_mode once; keep lease_id and wait_for_task.
 For writes=commands use remote_execute on Alice for file operations, dependencies,
 tests and Git within Alice's authorized task and configured backend. Docker has
@@ -212,9 +225,11 @@ def build_server(client, background="off"):
             )
 
         @tool(readonly=True)
-        def task_status(mode_id: str, task_id: str) -> dict:
-            """Get compact status and B's summary once. Do not start a model polling loop."""
-            return client.call("status", {"mode_id": mode_id, "task_id": task_id})
+        def task_status(mode_id: str, task_id: str, details: bool = False) -> dict:
+            """Get compact status. Request details only for full command history or diagnosis."""
+            return task_view(
+                client.call("status", {"mode_id": mode_id, "task_id": task_id}), details=details
+            )
 
         @tool()
         async def wait_for_update(
@@ -238,7 +253,7 @@ def build_server(client, background="off"):
                 capability.form is not None or capability.url is None
             )
             if not result["questions"] or not supported:
-                return result
+                return task_view(result)
             question = result["questions"][0]
             message = question_message(question)
             response = await ctx.elicit(message=message, schema=RequesterAnswer)
@@ -258,7 +273,7 @@ def build_server(client, background="off"):
                 client.call, "status", dict(mode_id=mode_id, task_id=task_id)
             )
             result["question_response"] = reply
-            return result
+            return task_view(result)
 
         @tool()
         def answer_question(
@@ -449,8 +464,9 @@ def build_server(client, background="off"):
             message: str,
             choices: list[str] | None = None,
         ) -> dict:
-            """Ask Alice a clarification or permission question and pause new execution.
+            """Ask one concise question with short choices and pause new execution.
 
+            Plain question text, no JSON, sender label, internal IDs or warning preamble.
             Route project questions here, not to Bob's native question UI. No secrets.
             Existing commands may still run; cancel them first if the question requires stopping.
             """
@@ -502,7 +518,10 @@ def build_server(client, background="off"):
 
         @tool()
         def complete_task(lease_id: str, task_id: str, summary: str, answer: str = "") -> dict:
-            """Finish with a concise summary (max 2000 chars); full answer is optional (32768)."""
+            """Finish with a short factual outcome; put a requested detailed report in answer.
+
+            Summary limit 2000 characters; optional answer limit 32768. Do not narrate logs.
+            """
             return client.call(
                 "complete",
                 {"lease_id": lease_id, "task_id": task_id, "summary": summary, "answer": answer},

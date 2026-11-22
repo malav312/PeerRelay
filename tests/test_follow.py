@@ -61,7 +61,8 @@ def context(supported, callback=None):
     )
 
 
-def test_follow_handles_two_questions_without_returning_to_model(relay):
+@pytest.mark.parametrize("action", ["accept", "decline", "cancel"])
+def test_follow_handles_two_questions_without_returning_to_model(relay, action):
     from agent_relay.follow import follow
 
     mode = relay.call("requester", "requester_mode", {})["mode_id"]
@@ -74,7 +75,10 @@ def test_follow_handles_two_questions_without_returning_to_model(relay):
 
     async def respond(message, schema):
         messages.append(message)
-        return SimpleNamespace(action="accept", data=SimpleNamespace(answer="yes"))
+        return SimpleNamespace(
+            action=action,
+            data=SimpleNamespace(answer="Custom — 多字") if action == "accept" else None,
+        )
 
     async def bob():
         for index in range(2):
@@ -98,6 +102,9 @@ def test_follow_handles_two_questions_without_returning_to_model(relay):
                 == "pending"
             ):
                 await asyncio.sleep(0.01)
+            answer = relay.questions.get(task, q["question_id"])
+            assert answer["action"] == action
+            assert answer["answer"] == ("Custom — 多字" if action == "accept" else "")
         relay.call("responder", "complete", dict(lease_id=lease, task_id=task, summary="done"))
 
     async def exercise():
@@ -108,9 +115,9 @@ def test_follow_handles_two_questions_without_returning_to_model(relay):
 
     result = asyncio.run(exercise())
     assert result["state"] == "succeeded"
-    assert len(messages) == 2 and all("Bob" in m and "untrusted" in m for m in messages)
+    assert messages == ["Choose a format\n\n1. yes"] * 2
     assert result["delivery"]["answered"] == 2
-    assert result["delivery"]["ui_display_verified"] is False
+    assert result["delivery"] == {"requested": 2, "answered": 2}
 
 
 def test_follow_timeout_resume_and_fallback_do_not_resubmit(relay):
