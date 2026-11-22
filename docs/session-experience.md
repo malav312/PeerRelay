@@ -7,7 +7,7 @@ a task arrives, without anyone asking it to check the queue.
 
 ## 1. Normal questions and short replies
 
-Implemented on the conversation-experience branch:
+Conversation behavior:
 
 ```text
 Which separator behavior should I use?
@@ -29,7 +29,11 @@ cancel and mode exit remain controls. No repeated “use PeerRelay” prefix is 
 This is specified in the native role instructions; deterministic input interception
 is a separate integration task.
 
-Routine status uses the returned display verbatim: “Working.” or “Done.”, then stops.
+Routine status uses the returned display: “Working.” or “Done.”. Completed execution
+tasks with an available review add changed-file/line counts on the same line.
+Review links stay in tool state until requested. No routine summary retelling,
+verification disclaimer, workspace recap or follow-up offer. Connection checks
+return “Bob is connected.” / “Bob is disconnected.”; exit returns “Requester mode off.”
 “Done.” acknowledges relay completion; it does not assert independent requester
 verification. The requester does not narrate command counts or reconfirm an accepted
 native answer. A question is shown only when input is needed. Failed
@@ -40,17 +44,25 @@ approval say “Proposal ready for review.” Changes remain subject to
 the existing project/backend permissions.
 
 The MCP status view aggregates successful command history rather than sending it
-back on every wait. `task_status(details=true)` retrieves the full history. Relay
-JSON-RPC status/storage are unchanged. This reduces routine tool text; native token
-savings have not been measured.
+back on every wait. `task_status(details=true)` retrieves the full history. This
+reduces routine tool text; native token savings have not been measured.
+
+The [read-only changes viewer](changes-review.md) shows a frozen task-interval diff
+in the browser. Ordinary status returns counts and a link, not filenames or patch
+text. For “show changes”, prefer native `/diff` when the edited project is open.
+For a separate setup folder, explain that prerequisite and offer the task-only link.
+Explicit task-only/browser viewing returns the link. No panel is opened by the skill.
+Requests to explain or review changes still go to Bob through the relay.
 
 ## 2. Pairing from mode commands
 
-Next setup slice: a stable bootstrap MCP that can start before a pair exists,
-accompanied by both role skills. The mode flow selects the project and execution
-settings, opens pairing, confirms the match, starts the relay and reports Connected.
-Existing pairing bundles remain usable. Setup should resume after timeouts rather
-than creating another pair or relay.
+Implemented setup layer: a stable bootstrap MCP starts before a pair exists,
+accompanied by both role skills. Its local pairing view selects the project and
+execution settings, performs the existing pairing exchange and can start the relay.
+Pairing and authenticated relay readiness are reported separately from role
+connection. Existing bundles remain usable; explicit chat bindings preserve setup
+on resume. See [mode-driven pairing](mode-pairing.md) for setup and remaining
+native-client acceptance.
 
 A native dialog or local pairing view can present the code and confirmation. MCP
 does not choose a top-right location inside another app; the host controls display.
@@ -74,13 +86,36 @@ controller and Codex terminal on CLI 0.171.0 without a model call. Task delivery
 turn ownership, approvals and reconnect recovery still need implementation and
 acceptance. See [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 
+The [owned-session controller stage](automatic-delivery.md) now implements exact
+Codex session lifecycle, durable meaningful-event delivery and code-only relay
+monitoring, with a runnable scripted acceptance demo and a zero-turn native metadata
+probe. Native MCP/launcher bindings and approval/tool-restriction acceptance remain
+the next stage; installed chats do not gain automatic delivery from this layer.
+
 Both sides should wait in code, without idle model polling. A task, needed answer,
 completion or disconnect triggers delivery. Preserve operation IDs, reconcile
 uncertain delivery and stop on explicit disconnect. All four client combinations
-remain in scope. The current question fix does not yet provide unattended Codex
-delivery or mode-driven pairing.
+remain in scope. The current setup layer does not yet provide unattended Codex
+delivery or native automatic session binding.
 
 ## Test the conversation slice
+
+### Native diff shortcut
+
+To view edits without asking the model to reproduce the patch, use `/diff` in
+Claude Code or Codex CLI, or the Review pane in Codex desktop. Open the actual
+registered Git project and select the working-tree/Current view. A requester chat
+in a separate setup directory does not automatically point its viewer at that
+project. PeerRelay's role instructions explain this shortcut when asked; they
+cannot invoke a native panel or inject a built-in edited-files card. Native `/diff`
+is a client command, not another task for the responder. Asking for analysis is
+separate and still uses the relay. Routine completion does not repeat the hint.
+
+See [Claude's diff viewer](https://code.claude.com/docs/en/interactive-mode#review-changes-with-diff),
+[Codex CLI commands](https://learn.chatgpt.com/docs/reference/slash-commands), and
+[Codex's review pane](https://learn.chatgpt.com/docs/code-review).
+
+### Conversation acceptance
 
 Use a fresh pair of native chats with this branch's code and updated role skills;
 do not silently replace a running session. In requester mode, submit an ordinary

@@ -9,6 +9,7 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from .background import ChannelServer, Watches
+from .changes_viewer import ChangesViewer
 from .follow import RequesterAnswer, capabilities, follow, question_message
 from .policy import reject_secret, untrusted
 from .presentation import task_view
@@ -17,17 +18,37 @@ REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob unt
 Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
 command. Pending-question answers resolve that question; progress follows the existing
 task; cancel/exit are controls, not new tasks. Routine status/completion response:
-return display verbatim as the entire reply, then stop. Example: Done.
+Use one line: display plus changed-file/line counts when available. Example:
+Done. 1 file changed, +1/-0. Do not retell Bob's summary, contents, commands, or tests.
+Do not append "Bob reports", "I haven't checked", workspace/port explanations or
+follow-up offers to routine receipts. Keep blockers and requested reports visible.
+Connection checks say only "Bob is connected." or "Bob is disconnected." Mode exit
+says "Requester mode off." Explain extra details only when needed for user action.
 That is a relay receipt, not a claim of independent local verification. Accepted
 native-form answers are already settled; continue without reconfirming them.
 If command_issues, reply_rejected or the summary reports a blocker/limitation, instead
 give the specific issue and needed action briefly. If proposals await review, say
-Proposal ready for review. If the user requested an answer/report/diff (including
+Proposal ready for review. If the user requested an answer/report (including
 in the original task), retrieve and deliver it; the receipt rule is for status only.
 Ask questions normally with
 readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
 Only say Implemented for completed changes. Keep IDs in tool state/continuation.
+Keep changes.view_url in tool state; do not append it to every completion. Note omitted
+previews when present. For "show changes", first suggest native /diff in Claude Code
+or Codex CLI, or the Codex desktop Review pane, if the edited Git project is open.
+If the chat uses a separate setup folder or the project is unknown, say the edited
+project must be opened first and offer the task-only view_changes link instead.
+Use view_changes for explicit task-only/browser viewing. Return only its link, unless
+unavailable or previews are omitted. Never fetch the page into model context.
+Forward ordinary explanation/review requests to Bob.
+Use get_changes_for_analysis only for an explicit request to bring the stored patch
+into this requester's model context, not merely to view it or ask Bob to review it.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
+Native /diff is client UI, not a relay task. For a native viewer shortcut, suggest /diff in
+Claude Code or Codex CLI, or Codex desktop's Review pane, only with the edited Git
+project open; use the working-tree/Current view. A separate setup folder won't
+show that project. Do not fetch diff text or run local shell just to display it.
+Skills cannot open the panel. Explicit requests for analysis still use PeerRelay.
 Activate requester_mode once; execution=true only on Alice's explicit authorization
 and an exec pair. Verify workspace and run requester_diagnostics. Retain mode_id in
 this chat and continuation summaries. Follow-ups and responder reconnects MUST reuse
@@ -53,7 +74,13 @@ RESPONDER_INSTRUCTIONS = """PeerRelay response mode offers Bob's active agent on
 with minimal narration: one connection receipt, brief outcomes/blockers and disconnect.
 Ask Alice a direct question with short choices, at most a brief context sentence, no
 JSON or Bob-prefix/warning preamble. Keep the decision understandable. complete_task
-gets a short factual summary; put a requested report in answer. Activation happens
+gets one short outcome sentence; include failures/limits, omit successful command
+counts and file-content recaps. Put a requested report in answer. If Alice asks how
+to view changes, suggest native /diff (Claude Code/Codex CLI) or the desktop Review
+pane with the edited Git project open, using the working-tree/Current view. Keep
+diff text out of a viewing-only answer. This UI shortcut isn't a remote shell
+command and cannot open Alice's panel. Omit the hint from routine completion.
+Activation happens
 on Bob's instruction. Call response_mode once; keep lease_id and wait_for_task.
 For writes=commands use remote_execute on Alice for file operations, dependencies,
 tests and Git within Alice's authorized task and configured backend. Docker has
@@ -97,6 +124,8 @@ def build_server(client, background="off"):
         "PeerRelay " + client.role, instructions=instructions, log_level="ERROR", watches=watches
     )
 
+    server.changes_viewer = ChangesViewer(client)
+
     def tool(readonly=False, destructive=False):
         def register(function):
             @wraps(function)
@@ -107,6 +136,17 @@ def build_server(client, background="off"):
                     result = await function(*args, **kwargs)
                 else:
                     result = await asyncio.to_thread(function, *args, **kwargs)
+                if client.role == "requester" and isinstance(result, dict):
+                    changes = result.get("changes", {})
+                    if changes.get("state") == "available":
+                        bound = inspect.signature(function).bind(*args, **kwargs).arguments
+                        mode_id = bound.get("mode_id")
+                        task_id = result.get("task_id")
+                        if mode_id and task_id:
+                            try:
+                                changes["view_url"] = server.changes_viewer.link(mode_id, task_id)
+                            except OSError:
+                                changes["viewer_state"] = "unavailable"
                 return untrusted(result, "Bob" if client.role == "requester" else "Alice")
 
             return server.tool(
@@ -302,8 +342,25 @@ def build_server(client, background="off"):
             )
 
         @tool(readonly=True)
+        def view_changes(mode_id: str, task_id: str) -> dict:
+            """Get a local browser review link and counts, without sending patches to the model.
+
+            The page is read-only. Share its URL with the user; do not fetch it with model tools.
+            """
+            status = client.call("status", {"mode_id": mode_id, "task_id": task_id})
+            return {"task_id": task_id, "changes": status.get("changes", {"state": "unavailable"})}
+
+        @tool(readonly=True)
+        def get_changes_for_analysis(mode_id: str, task_id: str) -> dict:
+            """Fetch patch text ONLY on an explicit request to load it in requester model context.
+
+            Ordinary review/explanation tasks go to Bob. For viewing use view_changes instead.
+            """
+            return client.call("changes", {"mode_id": mode_id, "task_id": task_id})
+
+        @tool(readonly=True)
         def get_result(mode_id: str, task_id: str) -> dict:
-            """Fetch the full answer only if the user asks; it increases local model context."""
+            """Fetch a requested answer/report, including one requested in the original task."""
             return client.call("result", {"mode_id": mode_id, "task_id": task_id})
 
         @tool(destructive=True)

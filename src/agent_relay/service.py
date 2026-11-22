@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .changes import Changes
 from .execution import ACTIVE, Executor, workspace
 from .filesystem import Filesystem
 from .questions import Questions
@@ -38,6 +39,7 @@ REQUESTER = {
     "submit",
     "status",
     "result",
+    "changes",
     "exit_mode",
     "cancel",
     "usage",
@@ -123,6 +125,7 @@ class Relay:
             self.executor = Executor(
                 self.state, self.execution_authority, self.root, execution_backend
             )
+            self.changes = Changes(self.db, self.fs, self.clock)
             self.questions = Questions(self.db)
             self.db.commit()
         except BaseException:
@@ -171,6 +174,7 @@ class Relay:
             AND lease NOT IN (SELECT id FROM lease WHERE active=1)""")
 
         self.revoke_processes()
+        self.changes.sweep()
 
     def call(self, role, method, arguments):
         allowed = REQUESTER if role == "requester" else RESPONDER if role == "responder" else set()
@@ -190,6 +194,7 @@ class Relay:
                     (role,),
                 )
                 self.revoke_processes()
+                self.changes.sweep()
                 self.db.commit()
                 return result
             except (TypeError, KeyError, ValidationError) as error:
@@ -356,6 +361,10 @@ class Relay:
             ).fetchone()
         if not row:
             return {"state": "idle"}
+        if row["state"] == "queued" and self.db.execute(
+            "SELECT 1 FROM execution_modes WHERE mode=?", (row["mode"],)
+        ).fetchone():
+            self.changes.start(row["id"])
         self.db.execute("UPDATE tasks SET state='running' WHERE id=?", (row["id"],))
         context = self.db.execute(
             """SELECT prompt,summary FROM tasks WHERE mode=? AND id!=?
@@ -443,6 +452,7 @@ class Relay:
             raise Denied("Finish or cancel active commands before completing")
         bounded(summary, 2000)
         bounded(answer, 32768, empty=True)
+        self.changes.finish(task_id)
         self.db.execute(
             "UPDATE tasks SET state='succeeded',summary=?,answer=? WHERE id=?",
             (summary, answer, task_id),
@@ -458,6 +468,7 @@ class Relay:
             "task_id": task_id,
             "state": task["state"],
             "summary": task["summary"],
+            "changes": self.changes.summary(task_id),
             "proposals": [dict(p) for p in proposals],
             "commands": self.executor.summaries(task_id),
             "questions": self.questions.pending(task_id),
@@ -467,6 +478,10 @@ class Relay:
                 ).fetchone()
             ),
         }
+
+    def _changes(self, mode_id, task_id):
+        self.owned(mode_id, task_id, active=True)
+        return self.changes.get(task_id)
 
     def _result(self, mode_id, task_id):
         task = self.owned(mode_id, task_id)

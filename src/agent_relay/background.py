@@ -165,3 +165,5 @@ class ChannelServer(FastMCP):
                 )
         finally:
             await self.watches.close()
+            if hasattr(self, "changes_viewer"):
+                await asyncio.to_thread(self.changes_viewer.close)

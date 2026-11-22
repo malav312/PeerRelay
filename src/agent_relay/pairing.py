@@ -226,19 +226,25 @@ def host_session(conn, code, offer, confirm, commit):
     return peer
 
 
-def host(listener, code, offer, confirm, commit, log=print, window=WINDOW):
+def host(
+    listener, code, offer, confirm, commit, log=print, window=WINDOW, cancel=None, on_socket=None
+):
     deadline = time.monotonic() + window
     attempts = 0
     while attempts < ATTEMPTS:
+        if cancel is not None and cancel.is_set():
+            raise PairingFailed("Pairing cancelled")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        listener.settimeout(remaining)
+        listener.settimeout(min(0.25, remaining) if cancel is not None else remaining)
         try:
             conn, address = listener.accept()
         except (socket.timeout, TimeoutError):
-            break
+            continue
         with conn:
+            if on_socket is not None:
+                on_socket(conn)
             conn.settimeout(30)
             try:
                 return host_session(conn, code, offer, confirm, commit)
@@ -275,13 +281,15 @@ def validate_offer(offer):
     return offer
 
 
-def join(address, code, device_name, token, confirm, timeout=30):
+def join(address, code, device_name, token, confirm, timeout=30, on_socket=None):
     """Bob's side. Returns Alice's validated offer once she has stored the pairing."""
     try:
         sock = socket.create_connection(address, timeout=timeout)
     except OSError as error:
         raise PairingFailed(f"Could not reach {address[0]}:{address[1]}") from error
     with sock:
+        if on_socket is not None:
+            on_socket(sock)
         channel = Channel(sock)
         exchange = SPAKE2_B(code.encode(), idA=b"peerrelay-host", idB=b"peerrelay-join")
         join_message = exchange.start()

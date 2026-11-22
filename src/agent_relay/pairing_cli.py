@@ -89,6 +89,11 @@ def pair_host(
     execution_backend=None,
     allow_host_credentials=None,
     container_image=None,
+    on_ready=None,
+    on_confirm=None,
+    before_commit=None,
+    cancel=None,
+    on_socket=None,
 ):
     host = host or pairing.local_address()
     name = pairing.display_name(name or pairing.default_name())
@@ -167,12 +172,27 @@ def pair_host(
             out("")
             out("  Waiting for a device…")
 
+            if on_ready is not None:
+                on_ready(
+                    {
+                        "code": code,
+                        "address": f"{bound[0]}:{bound[1]}",
+                        "project": raw["root"],
+                        "grant": grant,
+                        "execution_backend": backend_kind,
+                    }
+                )
+
             def confirm(peer):
+                if on_confirm is not None:
+                    return on_confirm({**peer, "grant": grant, "execution_backend": backend_kind})
                 out(f"  → “{peer['device']}” ({peer['address']}) entered the right code.")
                 out(f"    Check number:  {peer['check']}    ← must match their screen")
                 return yes(ask, f"    Allow “{peer['device']}” with {grant.upper()} access? [y/N] ")
 
             def commit(peer):
+                if before_commit is not None:
+                    before_commit()
                 current = json.loads(private_file(server_path).read_text())
                 current["tokens"].pop("responder", None)  # A re-pair replaces any responder.
                 current["token_sha256"] = {"responder": peer["token_sha256"]}
@@ -203,7 +223,17 @@ def pair_host(
                 "relay_port": relay_port,
                 "certificate": certificate,
             }
-            peer = pairing.host(listener, code, offer, confirm, commit, log=out, window=window)
+            peer = pairing.host(
+                listener,
+                code,
+                offer,
+                confirm,
+                commit,
+                log=out,
+                window=window,
+                cancel=cancel,
+                on_socket=on_socket,
+            )
         finally:
             if advertisement is not None:
                 advertisement.close()
@@ -233,6 +263,8 @@ def pair_join(
     ask=input,
     out=print,
     discover_seconds=6.0,
+    on_confirm=None,
+    on_socket=None,
 ):
     directory = canonical_folder(directory)
     if directory.exists():
@@ -257,6 +289,14 @@ def pair_join(
         out(f"  Found “{candidate['name']}” at {candidate['address']}. Checking code…")
 
         def confirm(offer, check):
+            if on_confirm is not None:
+                return on_confirm(
+                    {
+                        key: value
+                        for key, value in {**offer, "check": check}.items()
+                        if key != "certificate"
+                    }
+                )
             out("  ✓ Code accepted.")
             out(f"    Device    {offer['host_name']}")
             out(f"    Project   {offer['project']}")
@@ -272,7 +312,12 @@ def pair_join(
 
         try:
             offer = pairing.join(
-                (candidate["address"], candidate["port"]), code, name, token, confirm
+                (candidate["address"], candidate["port"]),
+                code,
+                name,
+                token,
+                confirm,
+                on_socket=on_socket,
             )
             break
         except pairing.WrongCode as error:

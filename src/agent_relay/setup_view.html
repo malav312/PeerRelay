@@ -1,0 +1,62 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>PeerRelay setup</title>
+<style nonce="NONCE">
+body{font:17px system-ui;max-width:650px;margin:48px auto;padding:0 24px;color:#172c30}
+h1{font-size:30px}section{border-top:1px solid #ccd9d7;padding:20px 0}
+label{display:block;margin:12px 0}input,select,button{font:inherit;padding:9px;border:1px solid #9badaa;border-radius:6px}
+input:not([type=checkbox]){display:block;width:94%;margin-top:5px}button{cursor:pointer;background:#e4f1ed;margin:6px 8px 6px 0}
+pre{white-space:pre-wrap;background:#f2f6f5;padding:18px;border-radius:8px}small{color:#526966}
+[hidden]{display:none!important}#error{color:#963e26}
+</style><h1>PeerRelay</h1><p id="role"></p><p id="status" aria-live="polite"></p>
+<p id="error" role="alert"></p>
+<section id="choose"><h2>Pair with your colleague</h2>
+<form id="requester" hidden>
+<label>Project folder<input name="project" required placeholder="/path/to/project"></label>
+<label>Project access<select name="grant"><option value="ro">Read only</option><option value="rw">Propose changes for local review</option><option value="exec">Run project commands</option></select></label>
+<label>Execution backend<select name="backend"><option value="docker">Docker: project only, no network</option><option value="host">Host: runs as your OS user</option></select></label>
+<label id="host-consent" hidden><input type="checkbox" name="allow_host_credentials"> For host execution, I acknowledge commands can access relay and provider credentials.</label>
+<details><summary>Network settings</summary><label>Reachable host address (automatic if blank)<input name="host"></label><label>Relay port<input name="port" type="number" min="1" max="65534" value="9443"></label></details>
+<button>Show pairing code</button></form>
+<form id="responder" hidden><label>Code from your colleague<input name="code" required autocomplete="off"></label>
+<label>Pairing address (only if discovery is unavailable)<input name="address" placeholder="HOST:PORT"></label><button>Join pairing</button></form>
+<details><summary>Use an existing pairing</summary><form id="reuse"><label>This role's client.json path<input name="config" required></label><button>Use pairing</button></form></details></section>
+<section id="pending" hidden><pre id="details"></pre><div id="confirmation" hidden><p>Compare the check number with your colleague before accepting.</p><button id="accept">Accept pairing</button><button id="decline">Decline</button></div><button id="cancel">Cancel setup</button></section>
+<section id="recovery" hidden><p id="recovery-text"></p><button id="retry">Retry same setup</button></section>
+<section id="paired" hidden><h2>Paired</h2><p id="relay"></p><button id="start">Start relay</button><button id="check">Check relay</button><p>Return to your chat to activate this role. Relay readiness does not mean the other agent is connected.</p></section>
+<script nonce="NONCE">
+const base=location.pathname.replace(/\/$/,'');
+const el=id=>document.getElementById(id);
+let state;
+async function action(action,settings={}){
+ try{const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,settings})});
+ const data=await r.json();if(!r.ok)throw Error(data.error);el('error').textContent='';await refresh();}
+ catch(e){el('error').textContent=e.message;}
+}
+async function refresh(){
+ try{const r=await fetch(base+'/state',{cache:'no-store'});if(!r.ok)throw Error('Setup view closed. Resume setup_status in your chat.');
+ state=await r.json();el('role').textContent=state.role==='requester'?'Requester · share your project':'Responder · join a project';
+ const labels={choose_pairing:'Choose a pairing.',pairing:'Waiting for your colleague…',confirming:'Confirm this pairing.',waiting_peer:'Waiting for your colleague to confirm…',paired:'Pairing saved.',failed:'Pairing did not complete.',cancelled:'Setup cancelled.',cancelling:'Stopping setup…',interrupted:'Setup needs review.'};
+ el('status').textContent=labels[state.state]||state.state;
+ if(state.error)el('error').textContent=state.error;
+ const fresh=['choose_pairing','failed','cancelled','interrupted'].includes(state.state);
+ el('choose').hidden=!fresh;el('requester').hidden=state.role!=='requester'||state.pinned;
+ el('responder').hidden=state.role!=='responder';
+ el('pending').hidden=!['pairing','confirming','waiting_peer','cancelling'].includes(state.state);
+ el('confirmation').hidden=state.state!=='confirming';
+ const v=state.view,c=v.confirmation;
+ el('details').textContent=c?[c.device||c.host_name,c.project||'',c.grant||'',c.execution_backend||'',`Check number: ${c.check}`].filter(Boolean).join('\n'):v.code?`Pairing code: ${v.code}\n\nRead this code to your colleague.\nAddress if discovery is unavailable: ${v.address}`:'Checking pairing…';
+ el('recovery').hidden=!fresh||!state.pinned;
+ el('recovery-text').textContent=state.saved?'A credential may already be saved. Use the existing bundle path shown below after checking with your colleague: '+state.bundle:'Your project and backend choices are preserved.';
+ el('retry').hidden=state.saved;
+ el('paired').hidden=state.state!=='paired';el('relay').textContent='Relay: '+state.relay.replaceAll('_',' ');
+ el('start').hidden=!state.can_start;
+ }catch(e){el('error').textContent=e.message;}
+}
+for(const id of ['requester','responder'])el(id).onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),s=Object.fromEntries(f);if(id==='requester'){s.port=Number(s.port);s.allow_host_credentials=f.has('allow_host_credentials');}action('pair',s);};
+el('reuse').onsubmit=e=>{e.preventDefault();action('reuse',Object.fromEntries(new FormData(e.target)));};
+el('accept').onclick=()=>action('confirm',{accepted:true});el('decline').onclick=()=>action('confirm',{accepted:false});
+el('cancel').onclick=()=>action('cancel');el('retry').onclick=()=>action('pair');
+el('start').onclick=()=>action('start_relay');el('check').onclick=()=>action('check_relay');
+el('requester').onchange=()=>{const f=new FormData(el('requester'));el('host-consent').hidden=f.get('grant')!=='exec'||f.get('backend')!=='host';};
+refresh();setInterval(refresh,1000);
+</script></html>
