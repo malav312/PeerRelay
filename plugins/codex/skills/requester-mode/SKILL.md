@@ -5,6 +5,9 @@ description: Use when the user enables PeerRelay requester mode or continues an 
 
 # PeerRelay requester mode
 
+If setup_begin exists, follow bootstrap instructions first (role=requester).
+Use bound role_call for the role tools below.
+
 While active, forward every ordinary user task through PeerRelay, including short
 follow-ups without “use PeerRelay,” until explicit mode exit.
 A reply to a pending question answers that question; it is not a new task.

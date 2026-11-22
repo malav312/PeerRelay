@@ -158,3 +158,49 @@ def start(directory):
             "mcp__peerrelay__*",
         ],
     )
+
+
+def prepare_bootstrap(client, state_dir, directory):
+    """Package the stable MCP registration and BOTH entry skills before a pair exists."""
+    from .pairing_cli import canonical_folder
+
+    if client not in ("claude", "codex"):
+        raise ValueError("Choose claude or codex")
+    state_dir = canonical_folder(state_dir)
+    directory = canonical_folder(directory)
+    if directory.exists():
+        raise ValueError("Chat directory already exists; choose a new private directory")
+    if not directory.parent.is_dir():
+        raise ValueError("Chat directory needs an existing parent")
+    skills = {mode: _skill(client, mode) for mode in ("requester-mode", "response-mode")}
+    directory.mkdir(mode=0o700)
+    args = ["-m", "agent_relay.cli", "bootstrap", "--state-dir", str(state_dir)]
+    _write(
+        directory / "mcp.json",
+        json.dumps(
+            {"mcpServers": {"peerrelay": {"command": sys.executable, "args": args}}}, indent=2
+        )
+        + "\n",
+    )
+    skill_root = ".claude" if client == "claude" else ".agents"
+    for mode, skill in skills.items():
+        _write(directory / skill_root / "skills" / mode / "SKILL.md", skill)
+    report = {
+        "client": client,
+        "role": "unbound",
+        "directory": str(directory),
+        "state_dir": str(state_dir),
+        "connection": "not_started",
+        "native_acceptance": "pending",
+    }
+    _write(directory / "bootstrap.json", json.dumps(report, indent=2) + "\n")
+    _write(
+        directory / "NEXT-STEPS.txt",
+        "Install mcp.json in your selected native client; keep the entry skills together.\n"
+        "This does not edit global settings or replace a running integration.\n"
+        "Open this directory in a fresh chat and invoke requester-mode or response-mode.\n"
+        "Pairing takes place in the local setup URL. Never paste codes or credentials into chat.\n"
+        "Preserve the returned setup_id and chat binding_id on resume.\n"
+        "Native local-tool restrictions and automatic delivery still need acceptance.\n",
+    )
+    return report
