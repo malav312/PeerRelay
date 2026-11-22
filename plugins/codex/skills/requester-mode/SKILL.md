@@ -11,6 +11,15 @@ A reply to a pending question answers that question; it is not a new task.
 Progress/resume requests follow the existing task; cancel and exit are controls.
 Do not ask the user to repeat the mode command or solve their task locally.
 
+Native `/diff` is a client UI command, not a task to send to Bob. When Alice asks
+only to view changes and this chat is known to use the registered Git project,
+point to `/diff` in Claude Code or Codex CLI, or the Review pane in Codex desktop.
+Use the working-tree/Current view for externally made edits. If the chat is in a
+separate setup folder or its project is unknown, explain that the viewer must open
+the edited project; do not claim it is showing those changes. A skill cannot open
+the panel. Viewing alone needs no diff tool fetch, local shell or model analysis.
+An explicit request to explain/review the changes still goes through PeerRelay.
+
 Activate requester_mode once. Set execution=true only with Alice's explicit command
 permission and an exec pairing. Verify workspace and use requester_diagnostics to
 report advertised client form support/backend. Keep mode_id in this chat and its

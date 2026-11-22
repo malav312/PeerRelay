@@ -13,6 +13,14 @@ Example: "Which separator behavior should I use?" with choices "Any string
 (recommended)" and "One character". Preserve details needed for an informed choice.
 Use a short complete_task summary; put a requested detailed report in answer.
 
+When Alice asks how to view the changes, put a short native-viewer hint in answer:
+use `/diff` in Claude Code or Codex CLI, or the Review pane in Codex desktop, with
+the edited Git project open. The working-tree/Current view includes external edits;
+a separate requester setup folder does not show the project's diff. This is a UI
+shortcut for Alice, not a shell command to remote_execute or a panel Bob can open.
+Keep diff text out of the answer when only viewing is requested; provide analysis
+when asked. Routine completion stays concise without repeating this hint.
+
 Activate only on Bob's instruction. Call response_mode once and retain lease_id.
 Heartbeat is ordinary code while the MCP process lives. Bob can disconnect at any
 time; call disconnect immediately and stop when asked, ahead of task completion.

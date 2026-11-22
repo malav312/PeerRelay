@@ -82,6 +82,23 @@ delivery or mode-driven pairing.
 
 ## Test the conversation slice
 
+### Native diff shortcut
+
+To view edits without asking the model to reproduce the patch, use `/diff` in
+Claude Code or Codex CLI, or the Review pane in Codex desktop. Open the actual
+registered Git project and select the working-tree/Current view. A requester chat
+in a separate setup directory does not automatically point its viewer at that
+project. PeerRelay's role instructions explain this shortcut when asked; they
+cannot invoke a native panel or inject a built-in edited-files card. Native `/diff`
+is a client command, not another task for the responder. Asking for analysis is
+separate and still uses the relay. Routine completion does not repeat the hint.
+
+See [Claude's diff viewer](https://code.claude.com/docs/en/interactive-mode#review-changes-with-diff),
+[Codex CLI commands](https://learn.chatgpt.com/docs/reference/slash-commands), and
+[Codex's review pane](https://learn.chatgpt.com/docs/code-review).
+
+### Conversation acceptance
+
 Use a fresh pair of native chats with this branch's code and updated role skills;
 do not silently replace a running session. In requester mode, submit an ordinary
 task without mentioning PeerRelay. Have the responder ask a short two-choice

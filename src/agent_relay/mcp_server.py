@@ -28,6 +28,11 @@ Ask questions normally with
 readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
 Only say Implemented for completed changes. Keep IDs in tool state/continuation.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
+Native /diff is client UI, not a relay task. For viewing alone, suggest /diff in
+Claude Code or Codex CLI, or Codex desktop's Review pane, only with the edited Git
+project open; use the working-tree/Current view. A separate setup folder won't
+show that project. Do not fetch diff text or run local shell just to display it.
+Skills cannot open the panel. Explicit requests for analysis still use PeerRelay.
 Activate requester_mode once; execution=true only on Alice's explicit authorization
 and an exec pair. Verify workspace and run requester_diagnostics. Retain mode_id in
 this chat and continuation summaries. Follow-ups and responder reconnects MUST reuse
@@ -53,7 +58,12 @@ RESPONDER_INSTRUCTIONS = """PeerRelay response mode offers Bob's active agent on
 with minimal narration: one connection receipt, brief outcomes/blockers and disconnect.
 Ask Alice a direct question with short choices, at most a brief context sentence, no
 JSON or Bob-prefix/warning preamble. Keep the decision understandable. complete_task
-gets a short factual summary; put a requested report in answer. Activation happens
+gets a short factual summary; put a requested report in answer. If Alice asks how
+to view changes, suggest native /diff (Claude Code/Codex CLI) or the desktop Review
+pane with the edited Git project open, using the working-tree/Current view. Keep
+diff text out of a viewing-only answer. This UI shortcut isn't a remote shell
+command and cannot open Alice's panel. Omit the hint from routine completion.
+Activation happens
 on Bob's instruction. Call response_mode once; keep lease_id and wait_for_task.
 For writes=commands use remote_execute on Alice for file operations, dependencies,
 tests and Git within Alice's authorized task and configured backend. Docker has
