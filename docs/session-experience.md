@@ -7,7 +7,7 @@ a task arrives, without anyone asking it to check the queue.
 
 ## 1. Normal questions and short replies
 
-Implemented on the conversation-experience branch:
+Conversation behavior:
 
 ```text
 Which separator behavior should I use?
@@ -29,7 +29,8 @@ cancel and mode exit remain controls. No repeated “use PeerRelay” prefix is 
 This is specified in the native role instructions; deterministic input interception
 is a separate integration task.
 
-Routine status uses the returned display verbatim: “Working.” or “Done.”, then stops.
+Routine status uses the returned display: “Working.” or “Done.”. Completed execution
+tasks with an available review add changed-file/line counts and a review link.
 “Done.” acknowledges relay completion; it does not assert independent requester
 verification. The requester does not narrate command counts or reconfirm an accepted
 native answer. A question is shown only when input is needed. Failed
@@ -40,9 +41,13 @@ approval say “Proposal ready for review.” Changes remain subject to
 the existing project/backend permissions.
 
 The MCP status view aggregates successful command history rather than sending it
-back on every wait. `task_status(details=true)` retrieves the full history. Relay
-JSON-RPC status/storage are unchanged. This reduces routine tool text; native token
-savings have not been measured.
+back on every wait. `task_status(details=true)` retrieves the full history. This
+reduces routine tool text; native token savings have not been measured.
+
+The [read-only changes viewer](changes-review.md) shows a frozen task-interval diff
+in the browser. Ordinary status returns counts and a link, not filenames or patch
+text. Native `/diff` remains a client shortcut when the edited project is open.
+Requests to explain or review changes still go to Bob through the relay.
 
 ## 2. Pairing from mode commands
 

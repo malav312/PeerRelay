@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from urllib.request import urlopen
 
+import httpx
 import pytest
 import test_mcp
 from mcp import ClientSession, StdioServerParameters
@@ -18,7 +19,10 @@ live_pair = test_mcp.live_pair
 
 
 @pytest.mark.parametrize("live_pair", ["exec"], indirect=True)
-def test_stdio_follow_returns_link_while_browser_alone_fetches_patch(live_pair):
+@pytest.mark.parametrize("bootstrap", [False, True])
+def test_stdio_follow_returns_link_while_browser_alone_fetches_patch(
+    live_pair, tmp_path, bootstrap
+):
     pair, root, _ = live_pair
     (root / "hello.txt").write_text("preexisting user edit\n")
     responder = Client(load(pair / "responder/client.json"))
@@ -26,17 +30,48 @@ def test_stdio_follow_returns_link_while_browser_alone_fetches_patch(live_pair):
     params = StdioServerParameters(
         env={"PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
         command=sys.executable,
-        args=["-m", "agent_relay.cli", "mcp", "--config", str(pair / "requester/client.json")],
+        args=["-m", "agent_relay.cli"]
+        + (
+            ["bootstrap", "--state-dir", str(tmp_path / "setup")]
+            if bootstrap
+            else ["mcp", "--config", str(pair / "requester/client.json")]
+        ),
     )
 
     async def exercise():
         async with stdio_client(params) as (read, write), ClientSession(read, write) as requester:
             await requester.initialize()
-            mode = decode(await requester.call_tool("requester_mode", {"execution": True}))[
-                "mode_id"
-            ]
+            binding = None
+            if bootstrap:
+                binding_id = "changes-review-chat-123456"
+                receipt = decode(
+                    await requester.call_tool(
+                        "setup_begin", {"role": "requester", "binding_id": binding_id}
+                    )
+                )
+                binding = {"setup_id": receipt["setup_id"], "binding_id": binding_id}
+                url = receipt["setup_url"]
+                async with httpx.AsyncClient(trust_env=False) as browser:
+                    response = await browser.post(
+                        url,
+                        headers={"Origin": url.rsplit("/", 1)[0]},
+                        json={
+                            "action": "reuse",
+                            "settings": {"config": str(pair / "requester/client.json")},
+                        },
+                    )
+                    assert response.status_code == 200, response.text
+
+            async def call(tool, arguments):
+                if binding:
+                    return await requester.call_tool(
+                        "role_call", {**binding, "tool": tool, "arguments": arguments}
+                    )
+                return await requester.call_tool(tool, arguments)
+
+            mode = decode(await call("requester_mode", {"execution": True}))["mode_id"]
             pending = asyncio.create_task(
-                requester.call_tool(
+                call(
                     "submit_and_follow",
                     {
                         "mode_id": mode,
