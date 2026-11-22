@@ -200,6 +200,8 @@ def test_private_operation_names_remain_reserved_after_rename():
         ".peerrelay-create-123",
         ".peerrelay-apply-123",
         ".older-project-apply-orphan",
+        ".peerrelay-apply-",
+        ".peerrelay-create-new\nline",
         ".OLDER-PROJECT-CREATE-orphan",
         ".relay-write-123",
     ):

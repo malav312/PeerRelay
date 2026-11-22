@@ -1,3 +1,23 @@
+# Clean main verification — November 21, 2026
+
+The cleaned main candidate preserves the follow-through and Podman-tested execution
+implementation. Changes since that acceptance are documentation/naming cleanup and
+private temporary-file naming. Prefix checks continue to protect legacy operation
+files, including empty and newline-containing suffixes. Independent review found
+that edge case; the new test failed before its correction and then passed.
+
+The portable suite passes **167 tests**, with seven explicitly opt-in container
+tests skipped and one upstream Starlette/httpx warning. Ruff lint/format and Git
+whitespace checks pass. The previous seven real Podman acceptance tests are recorded
+below; they were not rerun as part of this naming cleanup.
+
+The history scan examines every commit reachable from all four intended published
+branches, including PR #1's branch. It permits required attribution files and the
+pairing code's ordinary English word list, and rejects unrelated project references
+and personal paths elsewhere. See [clone migration](history-cleanup.md).
+
+---
+
 # Podman runtime acceptance — November 21, 2026
 
 **173 tests passed in 39.51 seconds**, including all seven real-runtime checks.

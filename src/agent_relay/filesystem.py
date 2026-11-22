@@ -30,7 +30,7 @@ def identity(st):
 def reserved(name):
     # Reserve both current and legacy private operation files, regardless of branding.
     return name.casefold().startswith(".relay-write-") or bool(
-        re.fullmatch(r"\.[a-z][a-z0-9-]*-(?:create|apply)-.+", name, re.IGNORECASE)
+        re.match(r"\.[a-z][a-z0-9-]*-(?:create|apply)-", name, re.IGNORECASE)
     )
 
 
