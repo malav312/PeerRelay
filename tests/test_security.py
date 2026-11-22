@@ -191,3 +191,18 @@ def test_body_deadline_does_not_wait_for_client_forever():
         )
     )
     assert output[0]["status"] == 408
+
+
+def test_private_operation_names_remain_reserved_after_rename():
+    from agent_relay.filesystem import reserved
+
+    for name in (
+        ".peerrelay-create-123",
+        ".peerrelay-apply-123",
+        ".older-project-apply-orphan",
+        ".OLDER-PROJECT-CREATE-orphan",
+        ".relay-write-123",
+    ):
+        assert reserved(name)
+    for name in ("apply.py", ".env.example", "README.md", ".my-config"):
+        assert not reserved(name)

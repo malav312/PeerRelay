@@ -101,7 +101,7 @@ Old PeerRelay proposals were stored without the new admitted-operation/root/gran
 binding. They remain recorded but cannot be imported/approved through this CLI;
 request a fresh proposal rather than inventing missing evidence. Prior applied or
 uncertain effects must be inspected before any deliberate new task. This is why
-upstream's legacy import-target command is not exposed in PeerRelay's adapter.
+Upstream's legacy import-target command is not exposed in PeerRelay's adapter.
 
 Do not run older PeerRelay code against an upgraded pair while using local approval:
 it has model-callable apply and lacks the shared local-decision protections.
