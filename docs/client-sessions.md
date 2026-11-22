@@ -148,9 +148,11 @@ or an approval request stops delivery and revokes the owned lease where reachabl
 An uncertain native turn start is recorded and never automatically replayed.
 
 Startup checks enforce read-only sandbox writes, no approval escalation, disabled
-shell/execution, apps, browser, web search, plugins and delegation features. Other
-configured MCP servers cause startup to fail unless the command override clears
-them. These controls **do not establish total local-read isolation**: native file
+shell/execution, apps, browser, web search, plugins and delegation features. The
+launcher discovers existing MCP registrations from its fresh working directory
+and disables each through session-only command overrides. Saved MCP configuration
+is unchanged. It checks the effective configuration before creating a native thread
+and refuses startup if any server remains enabled. These controls **do not establish total local-read isolation**: native file
 read facilities may remain. Bob must use a suitable OS account/container if local
 read isolation is required. The responder instructions require requester work to
 use the remote tools. The human native terminal retains its own controls; changing

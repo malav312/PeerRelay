@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agent_relay.codex_responder import (
     ResponderBridge,
+    discover_mcp_servers,
     native_command,
     validate_config,
     validate_thread,
@@ -40,6 +41,13 @@ base_url = "http://127.0.0.1:9/v1"
 wire_api = "responses"
 requires_openai_auth = false
 """)
+    marker = root / "unexpected-mcp-start"
+    with (home / "config.toml").open("a") as config:
+        config.write(
+            '\n[mcp_servers."existing.peer"]\ncommand = "/usr/bin/touch"\n'
+            f'args = [{json.dumps(str(marker))}]\n'
+        )
+    original_config = (home / "config.toml").read_bytes()
     profile = root / "no-network.sb"
     profile.write_text('(version 1)\n(allow default)\n(deny network-outbound (remote ip "*:*"))\n')
     env = {
@@ -48,6 +56,10 @@ requires_openai_auth = false
         if key in os.environ
     }
     env["CODEX_HOME"] = str(home)
+    servers = discover_mcp_servers(
+        (sandbox, "-f", str(profile), *native_command(codex)), cwd=root, env=env
+    )
+    assert servers == ("existing.peer",)
 
     class Relay:
         role = "responder"
@@ -58,7 +70,7 @@ requires_openai_auth = false
         root / "native",
         cwd=root,
         env=env,
-        command=(sandbox, "-f", str(profile), *native_command(codex)),
+        command=(sandbox, "-f", str(profile), *native_command(codex, servers)),
         experimental=True,
         validate_config=validate_config,
         tool_handler=bridge.handle,
@@ -80,12 +92,15 @@ requires_openai_auth = false
         assert thread["id"] == session.thread_id
         assert thread["turns"] == []
         assert thread["status"]["type"] == "idle"
+        assert not marker.exists()
+        assert (home / "config.toml").read_bytes() == original_config
         result = {
             "exact_thread_resumable": True,
             "thread_status": "idle",
             "model_turns": 0,
             "responder_tools_registered": len(schemas),
             "native_restrictions_validated": True,
+            "existing_mcp_disabled_without_config_changes": True,
             "tui_argv_uses_exact_thread": session.thread_id in session.resume_argv(),
         }
     finally:

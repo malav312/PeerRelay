@@ -108,6 +108,21 @@ def test_config_validation_fails_closed_before_activation():
             validate_config({**config, **changed})
 
 
+def test_config_accepts_retained_mcp_definitions_only_when_explicitly_disabled():
+    from agent_relay.codex_responder import native_overrides, validate_config
+
+    config = native_overrides()
+    config["mcp_servers"] = {
+        "existing": {"command": "never-start", "enabled": False},
+        "remote": {"url": "https://example.invalid/mcp", "enabled": False},
+    }
+    validate_config(config)
+    for enabled in (True, None, 0, "false"):
+        config["mcp_servers"]["existing"]["enabled"] = enabled
+        with pytest.raises(ValueError, match="mcp_servers"):
+            validate_config(config)
+
+
 @pytest.mark.parametrize("failure", [None, "terminal", "start", "delivery"])
 def test_launcher_owns_exact_lease_and_cleans_up(tmp_path, monkeypatch, failure):
     from agent_relay import codex_responder as module
@@ -166,7 +181,7 @@ def test_launcher_owns_exact_lease_and_cleans_up(tmp_path, monkeypatch, failure)
     monkeypatch.setattr(module, "load", lambda path: {"role": "responder"})
     monkeypatch.setattr(module, "Client", Relay)
     monkeypatch.setattr(module, "OwnedCodexSession", Native)
-    monkeypatch.setattr(module, "preflight", lambda: ("codex",))
+    monkeypatch.setattr(module, "preflight", lambda cwd: ("codex",))
 
     async def run():
         if failure:
@@ -200,6 +215,46 @@ def test_preflight_rejects_unpinned_cli(monkeypatch):
     )
     with pytest.raises(ValueError, match="0.171.0"):
         module.preflight()
+
+
+def test_preflight_disables_existing_servers_without_changing_user_config(tmp_path, monkeypatch):
+    import tomllib
+    from types import SimpleNamespace
+
+    from agent_relay import codex_responder as module
+
+    names = ["peerrelay", "team.server", 'quoted"name']
+
+    def run(argv, **kwargs):
+        if argv[-1] == "--version":
+            return SimpleNamespace(returncode=0, stdout="codex-cli 0.171.0")
+        assert argv[-3:] == ["mcp", "list", "--json"]
+        assert kwargs["cwd"] == tmp_path
+        return SimpleNamespace(returncode=0, stdout=json.dumps([
+            {"name": name, "enabled": True, "transport": {"env": {"SECRET": "fixture"}}}
+            for name in names
+        ]))
+
+    monkeypatch.setattr(module.shutil, "which", lambda name: "/usr/bin/codex")
+    monkeypatch.setattr(module.subprocess, "run", run)
+    command = module.preflight(tmp_path)
+    overrides = [command[i + 1] for i, value in enumerate(command) if value == "-c"]
+    mcp = next(tomllib.loads(value)["mcp_servers"] for value in overrides
+               if value.startswith("mcp_servers="))
+    assert mcp == {name: {"enabled": False} for name in names}
+    assert not any("fixture" in value or "SECRET" in value for value in command)
+
+
+@pytest.mark.parametrize("output", ["not json", "{}", '[{"enabled": true}]'])
+def test_mcp_inventory_failure_is_not_treated_as_empty(output, monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_relay import codex_responder as module
+
+    monkeypatch.setattr(module.subprocess, "run", lambda *a, **kw:
+                        SimpleNamespace(returncode=0, stdout=output))
+    with pytest.raises(ValueError, match="MCP"):
+        module.discover_mcp_servers(("codex",))
 
 
 # Reuse the disposable TLS relay fixture, never a user's live pair.

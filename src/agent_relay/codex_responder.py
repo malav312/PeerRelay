@@ -59,6 +59,12 @@ def validate_config(config):
         if key == "features":
             if not isinstance(actual, dict) or any(actual.get(k) != v for k, v in expected.items()):
                 raise ValueError("Native feature restrictions were not applied")
+        elif key == "mcp_servers":
+            if not isinstance(actual, dict) or any(
+                not isinstance(server, dict) or server.get("enabled") is not False
+                for server in actual.values()
+            ):
+                raise ValueError("Native mcp_servers restriction was not applied")
         elif actual != expected:
             raise ValueError(f"Native {key} restriction was not applied")
 
@@ -127,11 +133,19 @@ class ResponderBridge:
         return {"success": success, "contentItems": [{"type": "inputText", "text": text}]}
 
 
-def native_command(executable):
+def native_command(executable, disabled_servers=()):
     command = [executable]
     for key, value in native_overrides().items():
         # JSON scalars/arrays are also TOML; tables need inline-table syntax.
-        if isinstance(value, dict) and value:
+        if key == "mcp_servers":
+            # Empty tables merge with user config rather than clearing it. Override
+            # each entry, using a top-level TOML table so dotted names stay literal.
+            entries = ",".join(
+                json.dumps(name, ensure_ascii=False) + "={enabled=false}"
+                for name in disabled_servers
+            )
+            command.extend(["-c", "mcp_servers={" + entries + "}"])
+        elif isinstance(value, dict) and value:
             for subkey, setting in value.items():
                 command.extend(["-c", f"{key}.{subkey}={json.dumps(setting)}"])
         else:
@@ -139,14 +153,37 @@ def native_command(executable):
     return tuple(command)
 
 
-def preflight():
+def discover_mcp_servers(command, *, cwd=None, env=None):
+    """Read effective registration names only; never expose transport credentials."""
+    try:
+        result = subprocess.run(
+            [*command, "mcp", "list", "--json"], cwd=cwd, env=env,
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode:
+            raise ValueError("MCP inventory failed")
+        servers = json.loads(result.stdout)
+        if not isinstance(servers, list) or any(
+            not isinstance(server, dict)
+            or not isinstance(server.get("name"), str)
+            or not server["name"]
+            for server in servers
+        ):
+            raise ValueError("Invalid MCP inventory")
+        return tuple(sorted({server["name"] for server in servers}))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        raise ValueError("Cannot inspect native MCP registrations; startup refused") from None
+
+
+def preflight(cwd=None):
     executable = shutil.which("codex")
     if not executable:
         raise ValueError("Codex CLI is required; install it and sign in normally first")
     result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15)
     if result.returncode or result.stdout.strip() != "codex-cli " + PINNED_CODEX_VERSION:
         raise ValueError(f"Dedicated responder requires validated Codex CLI {PINNED_CODEX_VERSION}")
-    return native_command(executable)
+    servers = discover_mcp_servers(native_command(executable), cwd=cwd)
+    return native_command(executable, servers)
 
 
 def validate_thread(result):
@@ -172,13 +209,13 @@ async def run_responder(config_path, directory):
     config = load(config_path)
     if config["role"] != "responder":
         raise ValueError("A responder bundle is required")
-    command = await asyncio.to_thread(preflight)
     directory = Path(directory).expanduser().absolute()
     if directory.parent.resolve() != directory.parent:
         raise ValueError("Session directory must not contain symlinks")
     directory.mkdir(mode=0o700)
     work = directory / "work"
     work.mkdir(mode=0o700)
+    command = await asyncio.to_thread(preflight, work)
     client, session, controller, bridge = None, None, None, None
     try:
         client = Client(config)
