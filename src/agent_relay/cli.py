@@ -15,6 +15,16 @@ def main():
         raise SystemExit(proposal_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="PeerRelay: paired requester and response modes")
     sub = parser.add_subparsers(dest="command", required=True)
+    bootstrap = sub.add_parser("bootstrap", help="Stable stdio MCP; no role bundle required")
+    bootstrap.add_argument(
+        "--state-dir", required=True, help="Private setup state outside projects"
+    )
+    bootstrap_setup = sub.add_parser(
+        "bootstrap-setup", help="Package stable MCP and both entry skills"
+    )
+    bootstrap_setup.add_argument("--client", choices=("claude", "codex"), required=True)
+    bootstrap_setup.add_argument("--state-dir", required=True)
+    bootstrap_setup.add_argument("--directory", required=True)
     client_setup = sub.add_parser("client-setup", help="Prepare a fresh native role chat")
     client_setup.add_argument("--client", choices=("claude", "codex"), required=True)
     client_setup.add_argument("--config", required=True)
@@ -69,6 +79,22 @@ def main():
     mcp.add_argument("--config", required=True)
     mcp.add_argument("--background", choices=("off", "claude-channel"), default="off")
     args = parser.parse_args()
+    if args.command == "bootstrap":
+        from .bootstrap import Setups, build_server
+
+        with Setups(args.state_dir) as setups:
+            build_server(setups).run(transport="stdio")
+        return
+    if args.command == "bootstrap-setup":
+        from .client_setup import prepare_bootstrap
+
+        try:
+            print(
+                json.dumps(prepare_bootstrap(args.client, args.state_dir, args.directory), indent=2)
+            )
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+        return
     if args.command in ("client-setup", "client-start"):
         from .client_setup import prepare, start
 

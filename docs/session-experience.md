@@ -46,11 +46,13 @@ savings have not been measured.
 
 ## 2. Pairing from mode commands
 
-Next setup slice: a stable bootstrap MCP that can start before a pair exists,
-accompanied by both role skills. The mode flow selects the project and execution
-settings, opens pairing, confirms the match, starts the relay and reports Connected.
-Existing pairing bundles remain usable. Setup should resume after timeouts rather
-than creating another pair or relay.
+Implemented setup layer: a stable bootstrap MCP starts before a pair exists,
+accompanied by both role skills. Its local pairing view selects the project and
+execution settings, performs the existing pairing exchange and can start the relay.
+Pairing and authenticated relay readiness are reported separately from role
+connection. Existing bundles remain usable; explicit chat bindings preserve setup
+on resume. See [mode-driven pairing](mode-pairing.md) for setup and remaining
+native-client acceptance.
 
 A native dialog or local pairing view can present the code and confirmation. MCP
 does not choose a top-right location inside another app; the host controls display.
@@ -77,8 +79,8 @@ acceptance. See [Codex app-server](https://learn.chatgpt.com/docs/app-server).
 Both sides should wait in code, without idle model polling. A task, needed answer,
 completion or disconnect triggers delivery. Preserve operation IDs, reconcile
 uncertain delivery and stop on explicit disconnect. All four client combinations
-remain in scope. The current question fix does not yet provide unattended Codex
-delivery or mode-driven pairing.
+remain in scope. The current setup layer does not yet provide unattended Codex
+delivery or native automatic session binding.
 
 ## Test the conversation slice
 

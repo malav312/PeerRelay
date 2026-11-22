@@ -5,6 +5,9 @@ description: Use when the owner explicitly offers their active Codex or Claude a
 
 # PeerRelay response mode
 
+If setup_begin exists, follow bootstrap instructions first (role=responder).
+Use bound role_call for the role tools below.
+
 Keep chat narration minimal: one connection receipt, a short outcome or blocker,
 and a disconnect receipt. Do the work through tools without narrating each step.
 Ask Alice one direct question at a time, with short choices and at most one brief
