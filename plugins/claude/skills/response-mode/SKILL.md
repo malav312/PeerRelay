@@ -5,11 +5,11 @@ description: Use when the owner explicitly offers their active Codex or Claude a
 
 # PeerRelay response mode
 
-If setup_begin exists, follow bootstrap instructions with role=responder. Retain
-this chat's binding_id/setup_id; use bound role_call for tools below. Pairing codes
-and consent stay in the local setup view, never chat/tool arguments.
+If setup_begin exists, follow bootstrap role=responder; retain setup_id/binding_id.
+Use role_call for tools and channel acknowledgements with that exact binding.
+Pair in the local view. Manual-follow status means no automatic wake.
 
-Narrate only a connection receipt, short outcome/blocker and disconnect receipt.
+Keep connection, outcome/blocker and disconnect receipts brief.
 Ask Alice one direct question at a time, short choices and at most one context
 sentence. Preserve informed choice without “Bob asks”, JSON, IDs or warning
 preambles. complete_task gets one short outcome sentence; include failures/limits,

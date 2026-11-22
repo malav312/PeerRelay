@@ -19,6 +19,13 @@ def main():
     bootstrap.add_argument(
         "--state-dir", required=True, help="Private setup state outside projects"
     )
+    bootstrap.add_argument("--project", help="Installed project, offered as the pairing default")
+    bootstrap.add_argument("--background", choices=("off", "claude-channel"), default="off")
+    install = sub.add_parser("install", help="Install role skills and MCP in an existing project")
+    install.add_argument("--client", choices=("claude", "codex"), required=True)
+    install.add_argument("--project", default=".")
+    install.add_argument("--state-dir", help="Private setup state outside the project")
+    install.add_argument("--background", choices=("off", "claude-channel"), default="off")
     bootstrap_setup = sub.add_parser(
         "bootstrap-setup", help="Package stable MCP and both entry skills"
     )
@@ -92,8 +99,18 @@ def main():
     if args.command == "bootstrap":
         from .bootstrap import Setups, build_server
 
-        with Setups(args.state_dir) as setups:
+        with Setups(args.state_dir, project=args.project, background=args.background) as setups:
             build_server(setups).run(transport="stdio")
+        return
+    if args.command == "install":
+        from .install import install
+
+        try:
+            print(json.dumps(install(
+                args.client, args.project, args.state_dir, args.background
+            ), indent=2))
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
         return
     if args.command == "bootstrap-setup":
         from .client_setup import prepare_bootstrap

@@ -33,6 +33,7 @@ class Watches:
         self.stopped_modes = set()
         self.stopped_tasks = set()
         self.closed = False
+        self.notification_meta = {}
 
     def supported(self, ctx):
         params = ctx.session.client_params
@@ -198,6 +199,7 @@ class Watches:
                     )
                     job["event"] = event
                     meta = dict(event_id=event["id"], watch_id=ident, event_kind=kind)
+                    meta.update(self.notification_meta)
                     if task:
                         meta["task_id"] = task
                     meta.update({"lease_id": lease} if lease else {"mode_id": mode})

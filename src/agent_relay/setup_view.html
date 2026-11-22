@@ -15,6 +15,7 @@ pre{white-space:pre-wrap;background:#f2f6f5;padding:18px;border-radius:8px}small
 <label>Project access<select name="grant"><option value="ro">Read only</option><option value="rw">Propose changes for local review</option><option value="exec">Run project commands</option></select></label>
 <label>Execution backend<select name="backend"><option value="docker">Docker: project only, no network</option><option value="host">Host: runs as your OS user</option></select></label>
 <label id="host-consent" hidden><input type="checkbox" name="allow_host_credentials"> For host execution, I acknowledge commands can access relay and provider credentials.</label>
+<label><input type="checkbox" name="start_relay" checked> Start relay after pairing</label>
 <details><summary>Network settings</summary><label>Reachable host address (automatic if blank)<input name="host"></label><label>Relay port<input name="port" type="number" min="1" max="65534" value="9443"></label></details>
 <button>Show pairing code</button></form>
 <form id="responder" hidden><label>Code from your colleague<input name="code" required autocomplete="off"></label>
@@ -27,6 +28,7 @@ pre{white-space:pre-wrap;background:#f2f6f5;padding:18px;border-radius:8px}small
 const base=location.pathname.replace(/\/$/,'');
 const el=id=>document.getElementById(id);
 let state;
+let projectPrefilled=false;
 async function action(action,settings={}){
  try{const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,settings})});
  const data=await r.json();if(!r.ok)throw Error(data.error);el('error').textContent='';await refresh();}
@@ -35,6 +37,7 @@ async function action(action,settings={}){
 async function refresh(){
  try{const r=await fetch(base+'/state',{cache:'no-store'});if(!r.ok)throw Error('Setup view closed. Resume setup_status in your chat.');
  state=await r.json();el('role').textContent=state.role==='requester'?'Requester · share your project':'Responder · join a project';
+ if(!projectPrefilled){const input=el('requester').elements.project;if(!input.value)input.value=state.project_default||'';projectPrefilled=true;}
  const labels={choose_pairing:'Choose a pairing.',pairing:'Waiting for your colleague…',confirming:'Confirm this pairing.',waiting_peer:'Waiting for your colleague to confirm…',paired:'Pairing saved.',failed:'Pairing did not complete.',cancelled:'Setup cancelled.',cancelling:'Stopping setup…',interrupted:'Setup needs review.'};
  el('status').textContent=labels[state.state]||state.state;
  if(state.error)el('error').textContent=state.error;
@@ -52,7 +55,7 @@ async function refresh(){
  el('start').hidden=!state.can_start;
  }catch(e){el('error').textContent=e.message;}
 }
-for(const id of ['requester','responder'])el(id).onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),s=Object.fromEntries(f);if(id==='requester'){s.port=Number(s.port);s.allow_host_credentials=f.has('allow_host_credentials');}action('pair',s);};
+for(const id of ['requester','responder'])el(id).onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),s=Object.fromEntries(f);if(id==='requester'){s.port=Number(s.port);s.allow_host_credentials=f.has('allow_host_credentials');s.start_relay=f.has('start_relay');}action('pair',s);};
 el('reuse').onsubmit=e=>{e.preventDefault();action('reuse',Object.fromEntries(new FormData(e.target)));};
 el('accept').onclick=()=>action('confirm',{accepted:true});el('decline').onclick=()=>action('confirm',{accepted:false});
 el('cancel').onclick=()=>action('cancel');el('retry').onclick=()=>action('pair');

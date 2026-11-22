@@ -73,30 +73,21 @@ and [Claude MCP prompt conventions](https://code.claude.com/docs/en/mcp).
 
 ## 3. Automatic responder and requester updates
 
-Claude has a native channel mechanism. PeerRelay already has an opt-in adapter;
-setup still needs to enable it in the native client, verify an acknowledgement and
-keep its lifetime aligned with the session. A notification write is not proof that
-the client processed it. See [Claude channels](https://code.claude.com/docs/en/channels-reference).
+Claude Code's opt-in channel adapter now works through both role MCP and the
+stable pairing bootstrap. Native channel enablement and an acknowledged probe are
+required; native live acceptance remains separate from transport tests.
 
-For Codex, the chosen route is a dedicated native terminal session using the
-person's own sign-in. A local controller binds to that specific session and wakes
-it for meaningful events; it must not attach to an arbitrary existing chat. The
-initial isolated transport probe established a shared native thread between a
-controller and Codex terminal on CLI 0.171.0 without a model call. Task delivery,
-turn ownership, approvals and reconnect recovery still need implementation and
-acceptance. See [Codex app-server](https://learn.chatgpt.com/docs/app-server).
-
-The [owned-session controller stage](automatic-delivery.md) now implements exact
-Codex session lifecycle, durable meaningful-event delivery and code-only relay
-monitoring, with a runnable scripted acceptance demo and a zero-turn native metadata
-probe. Native MCP/launcher bindings and approval/tool-restriction acceptance remain
-the next stage; installed chats do not gain automatic delivery from this layer.
+Codex automatic delivery currently uses dedicated native requester/responder
+terminals. Existing-project installation provides both role skills and bounded
+follow in ordinary sessions; it does not wake an arbitrary existing desktop chat.
+See [existing-session setup](existing-session-setup.md) and the
+[owned-session controller](automatic-delivery.md).
 
 Both sides should wait in code, without idle model polling. A task, needed answer,
 completion or disconnect triggers delivery. Preserve operation IDs, reconcile
 uncertain delivery and stop on explicit disconnect. All four client combinations
-remain in scope. The current setup layer does not yet provide unattended Codex
-delivery or native automatic session binding.
+remain in scope. Existing-session setup does not provide unattended Codex delivery; dedicated
+Codex sessions have a separate controller.
 
 ## Test the conversation slice
 

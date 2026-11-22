@@ -5,7 +5,16 @@ It packages both entry skills, opens a local pairing view, and dispatches tools 
 an explicitly bound requester or responder session after pairing. Existing
 `pair`, `join`, `mcp --config` and `client-setup` commands remain supported.
 
-## Prepare a fresh native chat
+## Install into an existing project
+
+Use `peer-relay install --client claude|codex --project PATH`. See the
+[existing-session guide](existing-session-setup.md). It preserves other MCP entries,
+installs both skills, and offers the installed project as the pairing default.
+Claude channel opt-in propagates through this bootstrap with exact chat binding;
+ordinary Codex chats still use bounded follow. Installation does not hot-enable
+native channel flags or provide a desktop wake API.
+
+## Legacy: prepare a fresh native chat
 
 Run this from an installed PeerRelay environment, selecting `claude` or `codex`:
 
@@ -43,7 +52,8 @@ acceptance requirements still apply.
 3. Compare check numbers and accept on both local views. Pairing uses the existing
    SPAKE2 exchange, certificate pin and responder token digest. The code and check
    number stay out of MCP tool results, setup records and model prompts.
-4. The requester selects **Start relay** in the view. This starts at most one
+4. With **Start relay after pairing** selected, the requester starts its new relay
+   after both confirmations. **Start relay** remains available for retry. This starts at most one
    relay for the new pair and checks authenticated pinned HTTPS readiness. An
    already running matching relay is reused. The responder can **Check relay**.
    Docker execution requires a usable local Docker backend; a startup failure
@@ -100,9 +110,9 @@ Still required before declaring the whole seamless-session experience accepted:
   skill discovery, URL opening, native local-tool restrictions and real LAN/mDNS.
 - Actual Docker execution acceptance in the selected runtime; unit coverage and
   proposal-grant relay startup do not establish Docker availability.
-- Native automatic responder delivery and requester updates. Bootstrap currently
-  dispatches role tools with background delivery off; it does not enable Claude
-  channels or attach a Codex terminal controller.
+- Live native acceptance of Claude channels through bootstrap. Explicit opt-in now
+  reaches bound role watches; native confirmation and acknowledgement remain required.
+  This does not attach an automatic controller to an existing Codex chat.
 - Per-chat IDs are an explicit protocol/skill binding, not a host-attested identity.
   Deterministic native input routing and automatic native session binding remain
   integration work. Role invocation is schema-driven through `role_call`, so native

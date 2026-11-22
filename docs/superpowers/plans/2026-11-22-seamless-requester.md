@@ -21,7 +21,7 @@
 - Exit/cancel/transport failure stops pending delivery with observable status.
 
 ## Tasks
-- [ ] 1. Structured outcomes: add validated optional completion data and migration in service; compact projection; MCP completion schema; tests for legacy/malformed/partial/failed/report retrieval and payload reduction.
-- [ ] 2. Claude channel: wire prepare/start background option; probe/ack/status, automatic watch transition from follow, dedup and lifecycle; tests for unsupported config, delayed event, cancellation and no replay.
-- [ ] 3. Codex requester: exact-mode/thread bridge + owned session launcher and CLI; register submitted tasks automatically, force immediate follow, questions through normal user chat; tests for scope, cancellation/exit, task registration, lifecycle and scripted native roundtrip.
-- [ ] 4. Integrate skills/docs/setup commands, run full suite and native credential-free probes, package skills, independent review, commit and push a new PR. Live acceptance remains required; do not merge this follow-up automatically.
+- [x] 1. Structured outcomes: add validated optional completion data and migration in service; compact projection; MCP completion schema; tests for legacy/malformed/partial/failed/report retrieval and payload reduction.
+- [x] 2. Claude channel: wire prepare/start background option; probe/ack/status, automatic watch transition from follow, dedup and lifecycle; tests for unsupported config, delayed event, cancellation and no replay.
+- [x] 3. Codex requester: exact-mode/thread bridge + owned session launcher and CLI; register submitted tasks automatically, force immediate follow, questions through normal user chat; tests for scope, cancellation/exit, task registration, lifecycle and scripted native roundtrip.
+- [x] 4. Integrate skills/docs/setup commands, run full suite and native credential-free probes, package skills, independent review, commit and push a new PR. Live acceptance remains required; do not merge this follow-up automatically.

@@ -5,8 +5,10 @@ description: Use when the user enables PeerRelay requester mode or continues an 
 
 # PeerRelay requester mode
 
-If setup_begin exists, use bootstrap role=requester. Retain this chat's binding_id/
-setup_id; use bound role_call. Pairing codes and consent stay in local setup UI.
+If setup_begin exists, follow bootstrap role=requester; retain setup_id/binding_id.
+Use role_call for role tools and channel acknowledgements with that exact binding.
+Complete pairing in its local view; verify workspace before activation. Manual-follow
+status means no automatic wake. Keep this project open for native diffs.
 
 Until explicit exit, forward ordinary tasks/follow-ups without “use PeerRelay”.
 Pending-question replies answer that question; progress follows the existing task.

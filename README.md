@@ -7,12 +7,17 @@ project/worktree. Each person uses their own signed-in client. PeerRelay makes n
 provider/model calls. Host exec can nevertheless expose provider credentials; see
 the [security boundaries and tradeoffs](docs/security.md).
 
-Follow the [two-laptop setup guide](docs/setup.md). This pairing branch has
-[automated integration results](docs/pairing-verification.md); [PR #2](https://github.com/malav312/PeerRelay/pull/2) remains unmerged. Python 3.13+, uv, Git and a
-signed-in native client are required on each laptop; current support is macOS/Linux.
-This is an experimental developer preview. Both people can clone the public
-repository; pairing credentials and journals must stay private. Mixed Codex/Claude
-native sessions still need live acceptance testing.
+Start with [installation in your existing project](docs/existing-session-setup.md):
+clone, run `uv sync --frozen`, then `peer-relay install --client claude|codex --project PATH`.
+Reload your client's MCP configuration and invoke requester-mode or response-mode.
+Both role skills and the pairing entry are installed together. No separate chat
+folder is needed. See the [two-laptop setup guide](docs/setup.md) for manual setup.
+
+Python 3.13+, uv, Git and a signed-in native client are required on each laptop;
+current support is macOS/Linux. This is an experimental developer preview.
+Automatic delivery is a separate capability: ordinary Codex chats use bounded
+follow; Claude Code channels need native opt-in and live acceptance. Keep pairing
+credentials and journals outside the project.
 
 ## Full coding sessions
 

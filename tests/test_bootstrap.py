@@ -120,7 +120,10 @@ def wait_state(session, expected, seconds=8):
     pytest.fail(f"Expected {expected}, got {session.record}")
 
 
-def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(tmp_path):
+@pytest.mark.parametrize("auto_start,startup_fails", [(False, False), (True, False), (True, True)])
+def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(
+    tmp_path, monkeypatch, auto_start, startup_fails
+):
     import socket
     import time
 
@@ -131,6 +134,12 @@ def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(t
         br = b.begin("responder", "chat-responder-123456")
         alice = a.session(ar["setup_id"], "chat-requester-123456")
         bob = b.session(br["setup_id"], "chat-responder-123456")
+        if startup_fails:
+            original_start = alice.start_relay
+            def fail_first_start():
+                monkeypatch.setattr(alice, "start_relay", original_start)
+                raise ValueError("Temporary startup failure")
+            monkeypatch.setattr(alice, "start_relay", fail_first_start)
         # Reserve adjacent loopback ports for the relay and pairing window.
         for _ in range(100):
             with socket.socket() as first:
@@ -146,6 +155,7 @@ def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(t
             {
                 "project": str(project),
                 "grant": "rw",
+                "start_relay": auto_start,
                 "backend": "docker",
                 "host": "127.0.0.1",
                 "port": port,
@@ -168,7 +178,13 @@ def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(t
         wait_state(alice, {"paired"})
         wait_state(bob, {"paired"})
         assert alice.record["settings"]["backend"] == "docker"
-        assert alice.record["relay"] == "not_started"
+        alice.worker.join(timeout=10)
+        assert alice.record["relay"] == (
+            "unavailable" if startup_fails else "ready" if auto_start else "not_started"
+        )
+        if startup_fails:
+            assert alice.record["state"] == "paired"
+            assert "Pairing saved" in alice.record["error"]
         assert bob.record["relay"] == "not_checked"
         assert "code" not in alice.view
         with pytest.raises(ValueError, match="already"):
@@ -178,6 +194,7 @@ def test_view_pairs_real_crypto_and_starts_one_relay_without_replacing_backend(t
         alice.start_relay()
         assert alice.relay_process is process
         assert alice.record["relay"] == "ready"
+        assert "error" not in alice.record
         assert bob.check_relay()["relay"] == "ready"
         with pytest.raises(ValueError, match="saved"):
             alice.cancel()
