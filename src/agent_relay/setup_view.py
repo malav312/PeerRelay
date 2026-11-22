@@ -87,6 +87,7 @@ def start_view(setups):
                         {
                             **session.receipt(),
                             "view": session.view,
+                            "project_default": str(setups.project) if setups.project else "",
                             "pinned": "settings" in session.record,
                             "saved": bool(saved),
                             "bundle": str(config) if saved else None,

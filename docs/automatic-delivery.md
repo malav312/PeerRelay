@@ -3,14 +3,16 @@
 This branch implements Codex session ownership, durable event delivery and relay
 waiting in code. It includes a runnable acceptance demo using a disposable real
 relay and scripted native turns, plus the experimental `codex-responder` launcher
-for an existing responder bundle. The launcher owns role activation and binds
+for an existing responder bundle. The `codex-requester` launcher now binds an
+existing requester bundle to its own mode and registers submitted tasks in code. The launcher owns role activation and binds
 task tools to its exact native thread and lease. See [client sessions](client-sessions.md#dedicated-automatic-codex-responder-experimental)
 for launch instructions. Existing installed chats are not retroactively connected
 to this controller; native model/TUI acceptance remains pending.
 
 The chosen Codex experience is a dedicated native terminal using that person's
 own sign-in. An arbitrary existing desktop conversation is not a delivery target.
-Claude's existing opt-in channel adapter is unchanged in this stage. All four
+Claude requesters can opt in through `client-setup --background claude-channel`;
+mode-bound probe acknowledgement verifies notification receipt. All four
 Claude/Codex requester/responder pairings remain in the product scope.
 
 ## What runs now
@@ -129,44 +131,34 @@ Each runs one synthetic turn with no external provider inference or account
 credentials. Outbound connections are restricted to localhost. These checks cover
 native dispatch and policy enforcement, not a live model's choice of tools.
 
-## Next integration stage
+## Requester delivery
 
-The dedicated responder command now covers native startup, exact lease activation,
-tool registration and owner cleanup. Remaining work includes bootstrap/role-command
-launcher integration, requester delivery and Claude channel setup. The points below
-describe that broader integration; they are not prerequisites for trying the
-explicit experimental responder command.
+See [automatic requester acceptance](seamless-requester-test.md) for both clients.
+Codex uses immediate tool status plus owned native event delivery. Claude uses
+bounded follow plus a task watch when waiting expires. Only questions and terminal
+states wake the requester; tool output consumed in the foreground is not echoed.
+The native requester probe is:
 
-1. Extend `client-setup` and its Codex launcher with the intended role-only MCP
-   configuration and role skill. Keep provider authentication inside the person's
-   native client. Verify all local tool restrictions before enabling peer work;
-   read-only sandbox configuration alone does not establish that boundary.
-2. Start `OwnedCodexSession` and its terminal, then use a private local control
-   channel to bind the exact successful `requester_mode` or `response_mode` result
-   to that thread and generation. Do not activate a second mode/lease in the
-   controller. Construct `DeliveryController` and `RelayMonitor` from that binding.
-3. On successful requester `submit`/`send_and_follow`, register the returned task ID
-   with `watch_task`. Preserve the original operation ID; neither monitor nor
-   dispatcher submits or retries the task. Route mode exit, responder disconnect
-   and native close to controller stop and owner-authority cleanup.
-4. Establish native TUI/controller ownership for approval and elicitation requests,
-   terminal readiness, and user turns racing automatic starts. Observing idle is
-   not an atomic reservation; native arbitration must be accepted before claiming
-   exclusive turn ownership. Then connect `run_delivery` and explicitly enable
-   turns. Render concise waiting/stopped state from controller state outside model
-   turns, including failed or uncertain delivery.
-5. Claude needs setup to pass `--background claude-channel`, explicit native
-   development-channel enablement where native policy permits it, an acknowledged
-   channel handshake, lease-aligned watch lifetime and visible watch failure.
-   Notification write success alone is not native acknowledgement. Do not bypass
-   a native policy that disallows channels.
+```sh
+PYTHONPATH=src .venv/bin/python scripts/probe_codex_tool_roundtrip.py --requester --terminal
+```
 
-After those bindings, test each of Claude→Claude, Claude→Codex, Codex→Claude and
-Codex→Codex in fresh disposable sessions: idle consumes no model turns; a task
-wakes the responder; an answer resumes that task; requester questions and completion
-appear without progress prompts; repeated events do not duplicate work; active
-native turns defer delivery; disconnect revokes access; transport loss during start
-stops rather than replays. Record native approvals, elicitation, local-tool probes
-and provider usage separately. No such inference acceptance was run for this stage.
+## Existing sessions and remaining acceptance
+
+[Project installation](existing-session-setup.md) now registers both role skills and
+the bootstrap MCP in an existing project. Claude channel opt-in propagates into bound
+roles, with setup/binding metadata on notifications and asynchronous watch cleanup.
+Native channel enablement and receipt acknowledgement still require the client.
+
+Dedicated Codex sessions bind activation and submitted tasks to their owned native
+thread. This controller does not attach to an arbitrary existing desktop/CLI chat.
+Ordinary installed Codex sessions retain bounded follow; automatic wake there remains
+unimplemented. Installing a skill or MCP configuration is not proof of that capability.
+
+Live acceptance must distinguish the two paths. Test all four client/role combinations,
+custom answers, follow-ups, native diff access, duplicates, cancellation, disconnect,
+and transport loss. Record whether native channel approval was available and whether
+manual wakeups were needed. Scripted native probes and local protocol tests do not
+establish a real model's adherence to the role instructions or provider token savings.
 
 Protocol reference: [Codex app-server](https://learn.chatgpt.com/docs/app-server).

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from .changes import Changes
 from .execution import ACTIVE, Executor, workspace
 from .filesystem import Filesystem
+from .outcomes import Completion, completion_view
 from .questions import Questions
 from .schemas import CONTENT_LIMIT, Tool, payload_hash
 
@@ -116,6 +117,10 @@ class Relay:
             CREATE TABLE IF NOT EXISTS execution_modes(mode TEXT PRIMARY KEY,binding TEXT);
             CREATE TABLE IF NOT EXISTS counters(role TEXT PRIMARY KEY,calls INTEGER);
             """)
+            if "completion" not in {
+                row["name"] for row in self.db.execute("PRAGMA table_info(tasks)")
+            }:
+                self.db.execute("ALTER TABLE tasks ADD COLUMN completion TEXT")
             # A server restart never resurrects an authority lease.
             self.db.execute("UPDATE lease SET active=0")
             self.db.execute(
@@ -361,9 +366,12 @@ class Relay:
             ).fetchone()
         if not row:
             return {"state": "idle"}
-        if row["state"] == "queued" and self.db.execute(
-            "SELECT 1 FROM execution_modes WHERE mode=?", (row["mode"],)
-        ).fetchone():
+        if (
+            row["state"] == "queued"
+            and self.db.execute(
+                "SELECT 1 FROM execution_modes WHERE mode=?", (row["mode"],)
+            ).fetchone()
+        ):
             self.changes.start(row["id"])
         self.db.execute("UPDATE tasks SET state='running' WHERE id=?", (row["id"],))
         context = self.db.execute(
@@ -442,7 +450,7 @@ class Relay:
         )
         return {"proposal_id": proposal, "status": "proposed"}
 
-    def _complete(self, lease_id, task_id, summary, answer=""):
+    def _complete(self, lease_id, task_id, summary, answer="", completion=None):
         self.working(lease_id, task_id)
         if self.executor.quarantined():
             raise Denied("Unresolved container cleanup; task completion is blocked")
@@ -452,10 +460,11 @@ class Relay:
             raise Denied("Finish or cancel active commands before completing")
         bounded(summary, 2000)
         bounded(answer, 32768, empty=True)
+        outcome = Completion.model_validate(completion) if completion is not None else None
         self.changes.finish(task_id)
         self.db.execute(
-            "UPDATE tasks SET state='succeeded',summary=?,answer=? WHERE id=?",
-            (summary, answer, task_id),
+            "UPDATE tasks SET state='succeeded',summary=?,answer=?,completion=? WHERE id=?",
+            (summary, answer, outcome.model_dump_json() if outcome else None, task_id),
         )
         return {"task_id": task_id, "state": "succeeded"}
 
@@ -464,9 +473,15 @@ class Relay:
         proposals = self.db.execute(
             "SELECT id,status FROM proposals WHERE task=?", (task_id,)
         ).fetchall()
+        try:
+            completion = completion_view(json.loads(task["completion"]))
+        except (TypeError, ValueError):
+            completion = None
         return {
             "task_id": task_id,
             "state": task["state"],
+            "completion": completion,
+            "answer_available": bool(task["answer"]),
             "summary": task["summary"],
             "changes": self.changes.summary(task_id),
             "proposals": [dict(p) for p in proposals],

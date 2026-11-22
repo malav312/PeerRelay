@@ -15,6 +15,7 @@ import threading
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.stdio import stdio_server
 
 from .client import Client, load, private_file
 from .mcp_server import REQUESTER_INSTRUCTIONS, RESPONDER_INSTRUCTIONS
@@ -34,6 +35,10 @@ through role_call with this setup_id and binding_id, tool name and arguments.
 Follow the role instructions below. A timeout is not permission to create a new
 pair, replace credentials, reconnect a responder or replay a task. setup_cancel
 stops setup only; after pairing use the role's disconnect/exit controls.
+Channel events include setup_id and binding_id. Use that exact binding for role_call
+acknowledge_event and follow/claim; never send an event to another setup. Installation
+does not prove automatic delivery. With background_delivery=manual_follow use bounded
+follow on user resume. Do not repeatedly poll or promise an automatic wake.
 """
 
 
@@ -46,6 +51,7 @@ def _identifier(value, label):
 class Session:
     def __init__(self, owner, directory, record):
         self.owner, self.directory, self.record = owner, directory, record
+        self.binding_id = None
         self.lock = threading.RLock()
         self.closed = False
         self.fd = os.open(directory / "owner.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
@@ -80,7 +86,7 @@ class Session:
     def _ensure_open(self):
         # Called while holding the session lock. Never acquire the manager lock here:
         # manager shutdown fences new operations before waiting for individual sessions.
-        if self.closed or self.owner.closed:
+        if self.closed or self.owner.closed or self.owner.closing:
             raise ValueError("Setup is closed; resume it in a new bootstrap process")
 
     def _release_owner(self):
@@ -99,6 +105,9 @@ class Session:
                 **{key: self.record[key] for key in ("setup_id", "role", "state", "relay")},
                 "setup_url": f"{self.owner.url}/{self.view_token}",
                 "error": self.record.get("error"),
+                "background_delivery": (
+                    "configured_unverified" if self.owner.background != "off" else "manual_follow"
+                ),
             }
 
     def reuse(self, config_path):
@@ -126,7 +135,10 @@ class Session:
                 raise ValueError("Bundle role changed; create a deliberate new chat binding")
             if self.server is None:
                 self.client = Client(config)
-                self.server = build_role_server(self.client)
+                self.server = build_role_server(self.client, background=self.owner.background)
+                self.server.watches.notification_meta = {
+                    "setup_id": self.record["setup_id"], "binding_id": self.binding_id,
+                }
             return self.server
 
     def _confirm(self, details):
@@ -204,7 +216,10 @@ class Session:
                         "host": settings.get("host") or pairing.local_address(),
                         "port": int(settings.get("port", 9443)),
                         "advertise": settings.get("advertise", True),
+                        "start_relay": settings.get("start_relay", False),
                     }
+                    if type(settings["start_relay"]) is not bool:
+                        raise ValueError("Start relay must be a checkbox choice")
                     check_directories(settings["project"], pair_dir)
                     check_endpoint(settings["host"], settings["port"])
                     if settings["port"] >= 65535:
@@ -276,6 +291,18 @@ class Session:
                 self.record.update(state="paired", config=str(config), relay=relay)
                 self.view.clear()
                 self.save()
+            if self.record["role"] == "requester" and settings.get("start_relay"):
+                try:
+                    self.start_relay()
+                except (ValueError, OSError):
+                    # Pairing succeeded. Preserve it even if its relay cannot start.
+                    with self.lock:
+                        self.record.update(
+                            relay="unavailable",
+                            error=("Pairing saved; relay startup failed. Check project/backend "
+                                   "and port, then retry Start relay."),
+                        )
+                        self.save()
         except Exception as error:
             with self.lock:
                 # Even after cancellation, a committed credential needs reconciliation.
@@ -342,6 +369,8 @@ class Session:
             ):
                 raise ValueError("Only this setup’s newly paired requester can start its relay")
             if self.check_relay()["relay"] == "ready":
+                self.record.pop("error", None)
+                self.save()
                 return self.receipt()
             if self.relay_process is None or self.relay_process.poll() is not None:
                 self.relay_process = subprocess.Popen(
@@ -352,6 +381,8 @@ class Session:
                 )
             for _ in range(50):
                 if self.check_relay()["relay"] == "ready":
+                    self.record.pop("error", None)
+                    self.save()
                     return self.receipt()
                 if self.relay_process.poll() is not None:
                     break
@@ -413,8 +444,7 @@ class Session:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-            # Bound servers do not run their own stdio cleanup. Channel watches
-            # are disabled here, but their local review viewer must be closed.
+            # Async bootstrap shutdown closes watches before this synchronous cleanup.
             if self.server:
                 self.server.changes_viewer.close()
             if client:
@@ -429,8 +459,19 @@ class Session:
 
 
 class Setups:
-    def __init__(self, root):
+    def __init__(self, root, project=None, background="off"):
+        if background not in ("off", "claude-channel"):
+            raise ValueError("Unsupported background adapter")
+        self.background = background
+        self.closing = False
+        self.project = canonical_folder(project) if project is not None else None
         self.root = canonical_folder(root)
+        if self.project is not None:
+            if not self.project.is_dir():
+                raise ValueError("Installed project is missing")
+            if (self.root == self.project or self.project in self.root.parents
+                    or self.root in self.project.parents):
+                raise ValueError("Private setup state must be separate and outside the project")
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.stat().st_uid != os.getuid() or self.root.stat().st_mode & 0o077:
             raise ValueError("Setup directory must be owned and private")
@@ -452,7 +493,7 @@ class Setups:
         binding_id = _identifier(binding_id, "binding_id")
         setup_id = hashlib.sha256(binding_id.encode()).hexdigest()
         with self.lock:
-            if self.closed:
+            if self.closed or self.closing:
                 raise ValueError("Bootstrap is closed; start a new process to resume setup")
             if setup_id not in self.sessions:
                 directory = self.root / setup_id
@@ -474,6 +515,7 @@ class Setups:
                 if record["role"] != role:
                     raise ValueError("This binding already has a different role")
                 session = Session(self, directory, record)
+                session.binding_id = binding_id
                 self.sessions[setup_id] = session
             elif self.sessions[setup_id].record["role"] != role:
                 raise ValueError("This binding already has a different role")
@@ -490,7 +532,7 @@ class Setups:
         if hashlib.sha256(binding_id.encode()).hexdigest() != setup_id:
             raise ValueError("Setup does not belong to this chat binding")
         with self.lock:
-            if self.closed:
+            if self.closed or self.closing:
                 raise ValueError("Bootstrap is closed; start a new process to resume setup")
             if setup_id not in self.sessions:
                 record = json.loads(private_file(self.root / setup_id / "setup.json").read_text())
@@ -520,8 +562,42 @@ class Setups:
                 http.server_close()
 
 
+    async def aclose(self):
+        # Fence new roles first, cancel tasks on their event loop, then close HTTP clients.
+        with self.lock:
+            self.closing = True
+            sessions = list(self.sessions.values())
+            for session in sessions:
+                with session.lock:
+                    if session.server:
+                        session.server.watches.closed = True
+        for session in sessions:
+            if session.server:
+                await session.server.watches.close()
+        await asyncio.to_thread(self.close)
+
+
+class BootstrapServer(FastMCP):
+    def __init__(self, setups):
+        super().__init__("PeerRelay", instructions=ENTRY, log_level="ERROR")
+        self.setups = setups
+
+    def initialization_options(self):
+        return self._mcp_server.create_initialization_options(
+            experimental_capabilities={"claude/channel": {}}
+            if self.setups.background == "claude-channel" else {}
+        )
+
+    async def run_stdio_async(self):
+        try:
+            async with stdio_server() as (read, write):
+                await self._mcp_server.run(read, write, self.initialization_options())
+        finally:
+            await self.setups.aclose()
+
+
 def build_server(setups):
-    server = FastMCP("PeerRelay", instructions=ENTRY, log_level="ERROR")
+    server = BootstrapServer(setups)
 
     @server.prompt(name="requester-mode")
     def requester_prompt() -> str:

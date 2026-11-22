@@ -19,6 +19,13 @@ def main():
     bootstrap.add_argument(
         "--state-dir", required=True, help="Private setup state outside projects"
     )
+    bootstrap.add_argument("--project", help="Installed project, offered as the pairing default")
+    bootstrap.add_argument("--background", choices=("off", "claude-channel"), default="off")
+    install = sub.add_parser("install", help="Install role skills and MCP in an existing project")
+    install.add_argument("--client", choices=("claude", "codex"), required=True)
+    install.add_argument("--project", default=".")
+    install.add_argument("--state-dir", help="Private setup state outside the project")
+    install.add_argument("--background", choices=("off", "claude-channel"), default="off")
     bootstrap_setup = sub.add_parser(
         "bootstrap-setup", help="Package stable MCP and both entry skills"
     )
@@ -29,11 +36,18 @@ def main():
     client_setup.add_argument("--client", choices=("claude", "codex"), required=True)
     client_setup.add_argument("--config", required=True)
     client_setup.add_argument("--directory", required=True, help="New private chat directory")
+    client_setup.add_argument("--background", choices=("off", "claude-channel"), default="off")
     client_start = sub.add_parser("client-start", help="Launch a prepared restricted Claude chat")
     client_start.add_argument("--directory", required=True)
     codex = sub.add_parser("codex-responder", help="Launch a dedicated native Codex responder")
     codex.add_argument("--config", required=True, help="Existing responder client.json")
     codex.add_argument("--directory", required=True, help="New private session directory")
+    requester = sub.add_parser("codex-requester", help="Launch an automatic native Codex requester")
+    requester.add_argument("--config", required=True, help="Existing requester client.json")
+    requester.add_argument("--directory", required=True, help="New private session directory")
+    requester.add_argument(
+        "--execution", action="store_true", help="Explicitly enable the pair's command permission"
+    )
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
     init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
@@ -85,8 +99,18 @@ def main():
     if args.command == "bootstrap":
         from .bootstrap import Setups, build_server
 
-        with Setups(args.state_dir) as setups:
+        with Setups(args.state_dir, project=args.project, background=args.background) as setups:
             build_server(setups).run(transport="stdio")
+        return
+    if args.command == "install":
+        from .install import install
+
+        try:
+            print(json.dumps(install(
+                args.client, args.project, args.state_dir, args.background
+            ), indent=2))
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
         return
     if args.command == "bootstrap-setup":
         from .client_setup import prepare_bootstrap
@@ -98,15 +122,19 @@ def main():
         except (ValueError, OSError) as error:
             parser.error(str(error))
         return
-    if args.command == "codex-responder":
+    if args.command in ("codex-responder", "codex-requester"):
         import asyncio
 
+        from .codex_requester import run_requester
         from .codex_responder import run_responder
 
         if not sys.stdin.isatty() or not sys.stdout.isatty():
-            parser.error("Dedicated Codex responder requires a human terminal")
+            parser.error("Dedicated Codex session requires a human terminal")
         try:
-            asyncio.run(run_responder(args.config, args.directory))
+            if args.command == "codex-requester":
+                asyncio.run(run_requester(args.config, args.directory, execution=args.execution))
+            else:
+                asyncio.run(run_responder(args.config, args.directory))
         except KeyboardInterrupt:
             raise SystemExit(130) from None
         except (ValueError, OSError, RuntimeError) as error:
@@ -117,7 +145,9 @@ def main():
 
         try:
             if args.command == "client-setup":
-                print(json.dumps(prepare(args.client, args.config, args.directory), indent=2))
+                print(json.dumps(prepare(
+                    args.client, args.config, args.directory, background=args.background
+                ), indent=2))
             else:
                 start(args.directory)
         except (ValueError, OSError, KeyError) as error:

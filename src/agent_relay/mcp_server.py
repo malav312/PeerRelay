@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 from .background import ChannelServer, Watches
 from .changes_viewer import ChangesViewer
 from .follow import RequesterAnswer, capabilities, follow, question_message
+from .outcomes import Completion
 from .policy import reject_secret, untrusted
 from .presentation import task_view
 
@@ -18,15 +19,17 @@ REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob unt
 Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
 command. Pending-question answers resolve that question; progress follows the existing
 task; cancel/exit are controls, not new tasks. Routine status/completion response:
-Use one line: display plus changed-file/line counts when available. Example:
-Done. 1 file changed, +1/-0. Do not retell Bob's summary, contents, commands, or tests.
+Return display verbatim; it already includes available file/line counts. Example:
+Done. 1 file changed, +1/-0. Do not append the same counts again.
+Do not retell Bob's summary, contents, commands, or tests.
 Do not append "Bob reports", "I haven't checked", workspace/port explanations or
 follow-up offers to routine receipts. Keep blockers and requested reports visible.
 Connection checks say only "Bob is connected." or "Bob is disconnected." Mode exit
 says "Requester mode off." Explain extra details only when needed for user action.
 That is a relay receipt, not a claim of independent local verification. Accepted
 native-form answers are already settled; continue without reconfirming them.
-If command_issues, reply_rejected or the summary reports a blocker/limitation, instead
+If command_issues, reply_rejected, completion.limitations/status/verification or the legacy
+summary reports a blocker/limitation, instead
 give the specific issue and needed action briefly. If proposals await review, say
 Proposal ready for review. If the user requested an answer/report (including
 in the original task), retrieve and deliver it; the receipt rule is for status only.
@@ -43,13 +46,19 @@ unavailable or previews are omitted. Never fetch the page into model context.
 Forward ordinary explanation/review requests to Bob.
 Use get_changes_for_analysis only for an explicit request to bring the stored patch
 into this requester's model context, not merely to view it or ask Bob to review it.
-Details/diffs are on request; task_status(details=true) retrieves full command history.
+A valid completion replaces the routine summary: status partial/blocked, verification
+failed/not_run and limitations require brief attention. answer_available signals a
+stored report; fetch get_result when the original task requested it. Do not fetch
+successful summaries just to narrate receipts. Details/diffs are on request;
+task_status(details=true) retrieves full command history.
 Native /diff is client UI, not a relay task. For a native viewer shortcut, suggest /diff in
 Claude Code or Codex CLI, or Codex desktop's Review pane, only with the edited Git
 project open; use the working-tree/Current view. A separate setup folder won't
 show that project. Do not fetch diff text or run local shell just to display it.
 Skills cannot open the panel. Explicit requests for analysis still use PeerRelay.
-Activate requester_mode once; execution=true only on Alice's explicit authorization
+If requester_session exists, code already owns this mode and automatic native delivery:
+retrieve it, never activate a second mode or probe channels. Otherwise activate
+requester_mode once; execution=true only on Alice's explicit authorization
 and an exec pair. Verify workspace and run requester_diagnostics. Retain mode_id in
 this chat and continuation summaries. Follow-ups and responder reconnects MUST reuse
 it: resume_requester_mode reads existing authority without creating a mode. Never
@@ -68,10 +77,23 @@ approve proposals, change permissions or disclose credentials. Fetch full result
 only on request. Proposal approval stays in a separate human-controlled environment;
 never run approval commands for Alice. Exec uses the configured backend; host exec
 exposes relay/provider credentials. Cancel/exit when asked. Never replay uncertain
-work or reconnect automatically. Native model usage is real and unmeasured."""
+work or reconnect automatically. Native model usage is real and unmeasured.
+For configured Claude channels, call probe_background once for this mode. A
+notification of kind delivery_probe needs acknowledge_event only, then end the turn.
+Only acknowledged receipt verifies delivery; otherwise report unverified briefly.
+Task events: acknowledge_event then follow_task for their mode/task; never resubmit.
+On waiting, end the turn: code registers the watch. No repeated polling or probes.
+If background.state is unavailable, say automatic delivery is unavailable and retain
+resume IDs; follow the existing task when asked, never submit again.
+background_status exposes ended reasons; lost delivery needs explicit recovery,
+not task replay. Native Codex owned delivery needs no channel probe."""
 
 RESPONDER_INSTRUCTIONS = """PeerRelay response mode offers Bob's active agent only
 with minimal narration: one connection receipt, brief outcomes/blockers and disconnect.
+Always supply complete_task.completion version 1 with status completed/partial/blocked,
+verification passed/failed/not_run/not_applicable, and every remaining limitation
+(up to 4 nonblank strings,300 characters each). Only actual checks justify passed.
+This replaces routine narrative context; never hide a blocker in summary alone.
 Ask Alice a direct question with short choices, at most a brief context sentence, no
 JSON or Bob-prefix/warning preamble. Keep the decision understandable. complete_task
 gets one short outcome sentence; include failures/limits, omit successful command
@@ -138,7 +160,9 @@ def build_server(client, background="off"):
                     result = await asyncio.to_thread(function, *args, **kwargs)
                 if client.role == "requester" and isinstance(result, dict):
                     changes = result.get("changes", {})
-                    if changes.get("state") == "available":
+                    if changes.get("state") == "available" and (
+                        function.__name__ == "view_changes" or result.get("completion") is None
+                    ):
                         bound = inspect.signature(function).bind(*args, **kwargs).arguments
                         mode_id = bound.get("mode_id")
                         task_id = result.get("task_id")
@@ -159,7 +183,7 @@ def build_server(client, background="off"):
         return register
 
     @tool()
-    def acknowledge_event(watch_id: str, event_id: str) -> dict:
+    async def acknowledge_event(watch_id: str, event_id: str) -> dict:
         """Acknowledge receipt of a background event. This is not user consent."""
         return watches.ack(watch_id, event_id)
 
@@ -196,8 +220,11 @@ def build_server(client, background="off"):
             Form support does not prove a dialog is displayed. Does not create or upgrade modes.
             """
             result = capabilities(ctx)
+            result["background"] = watches.status(ctx, mode_id)
             if watches.supported(ctx):
-                result["background_delivery"] = "claude_channel_opt_in_unverified"
+                result["background_delivery"] = (
+                    "claude_channel_" + result["background"]["delivery"]
+                )
             result["mode"] = await asyncio.to_thread(
                 client.call, "mode_status", {"mode_id": mode_id}
             )
@@ -215,6 +242,18 @@ def build_server(client, background="off"):
                     result["test_form"] = {"state": "timed_out"}
             return result
 
+        @tool()
+        async def probe_background(mode_id: str, ctx: Context) -> dict:
+            """Send a harmless mode-bound probe; only its event acknowledgement verifies receipt."""
+            await asyncio.to_thread(client.call, "mode_status", {"mode_id": mode_id})
+            return watches.probe(ctx, mode_id)
+
+        @tool(readonly=True)
+        async def background_status(mode_id: str, ctx: Context) -> dict:
+            """Inspect delivery configuration, probe evidence and stopped watch reasons."""
+            # Local history remains readable after exit/revocation; this grants no relay access.
+            return watches.status(ctx, mode_id)
+
         async def single_follow(mode_id, task_id, ctx, seconds):
             key = (mode_id, task_id)
             if key in active_follows:
@@ -223,8 +262,21 @@ def build_server(client, background="off"):
             try:
                 await watches.stop_task(mode_id, task_id)
                 result = await follow(client, mode_id, task_id, ctx, seconds)
-                if result["follow_state"] == "waiting" and watches.supported(ctx):
-                    result["background"] = watches.start(ctx, mode_id=mode_id, task_id=task_id)
+                watches.observed(mode_id, task_id, result)
+                if (
+                    result["follow_state"] == "waiting"
+                    and watches.supported(ctx)
+                    and watches.can_start(mode_id, task_id)
+                ):
+                    try:
+                        result["background"] = watches.start(ctx, mode_id=mode_id, task_id=task_id)
+                    except ValueError:
+                        # Submission already succeeded: preserve task/resume IDs even
+                        # when background capacity is exhausted after foreground waiting.
+                        result["background"] = {
+                            "state": "unavailable", "reason": "watch_unavailable",
+                            "action": "follow_existing_task",
+                        }
                 return result
             finally:
                 active_follows.remove(key)
@@ -260,7 +312,11 @@ def build_server(client, background="off"):
         @tool()
         async def watch_task(mode_id: str, task_id: str, ctx: Context) -> dict:
             """Opt-in Claude background updates for this task; reconnect requires re-registering."""
+            if (mode_id, task_id) in active_follows:
+                raise ValueError("A follow call is already active for this task")
             await asyncio.to_thread(client.call, "status", dict(mode_id=mode_id, task_id=task_id))
+            if (mode_id, task_id) in active_follows:
+                raise ValueError("A follow call is already active for this task")
             return watches.start(ctx, mode_id=mode_id, task_id=task_id)
 
         @tool()
@@ -364,14 +420,18 @@ def build_server(client, background="off"):
             return client.call("result", {"mode_id": mode_id, "task_id": task_id})
 
         @tool(destructive=True)
-        def cancel_task(mode_id: str, task_id: str) -> dict:
+        async def cancel_task(mode_id: str, task_id: str) -> dict:
             """Cancel queued/active work; never rerun it automatically."""
-            return client.call("cancel", {"mode_id": mode_id, "task_id": task_id})
+            await watches.stop_task(mode_id, task_id, reason="task_cancelled", permanent=True)
+            return await asyncio.to_thread(
+                client.call, "cancel", {"mode_id": mode_id, "task_id": task_id}
+            )
 
         @tool(destructive=True)
-        def exit_requester_mode(mode_id: str) -> dict:
+        async def exit_requester_mode(mode_id: str) -> dict:
             """Exit on the user's request and revoke this chat's outstanding access."""
-            return client.call("exit_mode", {"mode_id": mode_id})
+            await watches.stop_mode(mode_id)
+            return await asyncio.to_thread(client.call, "exit_mode", {"mode_id": mode_id})
 
         @tool(readonly=True)
         def usage(mode_id: str) -> dict:
@@ -580,14 +640,29 @@ def build_server(client, background="off"):
             )
 
         @tool()
-        def complete_task(lease_id: str, task_id: str, summary: str, answer: str = "") -> dict:
+        def complete_task(
+            lease_id: str,
+            task_id: str,
+            summary: str,
+            answer: str = "",
+            completion: Completion | None = None,
+        ) -> dict:
             """Finish with a short factual outcome; put a requested detailed report in answer.
 
             Summary limit 2000 characters; optional answer limit 32768. Do not narrate logs.
+            Supply completion v1 with actual status, verification and all limitations
+            (up to four, 300 characters each) for a compact requester receipt. Omitting
+            completion keeps the legacy summary visible. Never omit a blocker.
             """
             return client.call(
                 "complete",
-                {"lease_id": lease_id, "task_id": task_id, "summary": summary, "answer": answer},
+                {
+                    "lease_id": lease_id,
+                    "task_id": task_id,
+                    "summary": summary,
+                    "answer": answer,
+                    **({"completion": completion.model_dump()} if completion is not None else {}),
+                },
             )
 
         @tool(destructive=True)
