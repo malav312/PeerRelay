@@ -15,6 +15,12 @@ def main():
         raise SystemExit(proposal_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="PeerRelay: paired requester and response modes")
     sub = parser.add_subparsers(dest="command", required=True)
+    client_setup = sub.add_parser("client-setup", help="Prepare a fresh native role chat")
+    client_setup.add_argument("--client", choices=("claude", "codex"), required=True)
+    client_setup.add_argument("--config", required=True)
+    client_setup.add_argument("--directory", required=True, help="New private chat directory")
+    client_start = sub.add_parser("client-start", help="Launch a prepared restricted Claude chat")
+    client_start.add_argument("--directory", required=True)
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
     init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
@@ -63,6 +69,17 @@ def main():
     mcp.add_argument("--config", required=True)
     mcp.add_argument("--background", choices=("off", "claude-channel"), default="off")
     args = parser.parse_args()
+    if args.command in ("client-setup", "client-start"):
+        from .client_setup import prepare, start
+
+        try:
+            if args.command == "client-setup":
+                print(json.dumps(prepare(args.client, args.config, args.directory), indent=2))
+            else:
+                start(args.directory)
+        except (ValueError, OSError, KeyError) as error:
+            parser.error(str(error))
+        return
     if args.command == "init":
         print(
             json.dumps(

@@ -60,8 +60,8 @@ A sees a code such as `7-orbit-lantern` and reads it aloud. On B:
 
 B types the code. B's screen shows A's device name, the project and the access
 level. Both screens show the same six-digit check number; each person confirms.
-A then starts the relay with the `serve` command it prints, and B adds the MCP
-snippet it prints. Continue at step 4.
+A then starts the relay with the `serve` command it prints. Continue at step 4
+for repeatable native client setup; pairing alone does not finish client setup.
 
 How it works:
 
@@ -157,6 +157,17 @@ Keep the relative paths in B's `client.json`. B does not need A's project copy,
 requester token, server configuration, or TLS private key.
 
 ## 4. Configure each local client
+
+Use [fresh native client setup](client-sessions.md) for the next acceptance test.
+It generates the correct role skill and MCP configuration for either client, plus
+a dedicated Claude launcher with built-in tools disabled. Codex gets setup files
+and an explicit unresolved restriction checkpoint; no automatic launcher is
+provided until equivalent controls are verified. All four client combinations
+are supported by the protocol, independently of role.
+
+The manual instructions below remain available for existing installations. They
+install integration files **only**; they do not enforce local-tool restrictions.
+Restarting an unrestricted client does not itself resolve that checkpoint.
 
 Do this once on each laptop. Select the appropriate role values:
 

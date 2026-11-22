@@ -68,6 +68,12 @@ No deployment should interpret `--allow-host-credentials` as making host exec sa
 
 ## Restrict both native agents' local tools
 
+Use the [native session setup and acceptance checklist](client-sessions.md).
+The Claude launcher configures removal of built-in tools and limits MCP servers;
+native enforcement still needs acceptance on the installed client. Codex setup
+currently reports restrictions as unverified and does not generate a launcher.
+Neither integration files nor a skill prove that a running chat is restricted.
+
 Alice's agent sees Bob's summaries/questions; Bob's agent sees Alice's task/files.
 Either can contain prompt injection. Tool results mark peer content as untrusted;
 question forms identify Bob and state that replies grant no local authority.

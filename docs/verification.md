@@ -1,3 +1,26 @@
+# Native client setup verification — November 21, 2026
+
+The pairing branch's portable suite passes **197 tests**, with eight optional
+container-runtime checks skipped and one upstream Starlette/httpx warning. Eight
+new setup tests cover both roles and clients, private artifacts, existing paths,
+invalid bundles, shell quoting and the native launch argument boundary. The
+launcher override test failed before its correction and then passed.
+
+The built wheel was installed into a disposable directory. All four role/client
+setup combinations successfully started the real stdio MCP server and listed the
+expected role tools without activating a lease. All role skills were present in
+the wheel. Ruff and whitespace checks pass. Independent review found no important
+issues; a native help timeout can still display a traceback while failing closed.
+
+The installed Claude CLI advertises the launcher's required controls. No native
+model session or two-laptop question/write test was run for this change. Tool
+enforcement, skill invocation and native elicitation remain pending; Codex local
+tool restriction remains explicitly unverified. Follow the separate checkpoints
+in [native client sessions](client-sessions.md). This is not a new container or
+provider-token benchmark.
+
+---
+
 # Clean main verification — November 21, 2026
 
 The cleaned main candidate preserves the follow-through and Podman-tested execution
