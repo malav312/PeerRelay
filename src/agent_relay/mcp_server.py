@@ -9,6 +9,7 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from .background import ChannelServer, Watches
+from .changes_viewer import ChangesViewer
 from .follow import RequesterAnswer, capabilities, follow, question_message
 from .policy import reject_secret, untrusted
 from .presentation import task_view
@@ -17,16 +18,21 @@ REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob unt
 Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
 command. Pending-question answers resolve that question; progress follows the existing
 task; cancel/exit are controls, not new tasks. Routine status/completion response:
-return display verbatim as the entire reply, then stop. Example: Done.
+return display verbatim and stop when no changes.view_url is present. Example: Done.
 That is a relay receipt, not a claim of independent local verification. Accepted
 native-form answers are already settled; continue without reconfirming them.
 If command_issues, reply_rejected or the summary reports a blocker/limitation, instead
 give the specific issue and needed action briefly. If proposals await review, say
-Proposal ready for review. If the user requested an answer/report/diff (including
+Proposal ready for review. If the user requested an answer/report (including
 in the original task), retrieve and deliver it; the receipt rule is for status only.
 Ask questions normally with
 readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
 Only say Implemented for completed changes. Keep IDs in tool state/continuation.
+When changes.view_url is present, include a concise changed-file count and clickable
+review link and additions/deletions with the receipt; note omitted previews when present.
+The local page renders diffs without model processing.
+Use view_changes to renew a review link. Never fetch that page into model context.
+Only use get_changes_for_analysis when the user explicitly asks you to analyze the diff.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
 Native /diff is client UI, not a relay task. For viewing alone, suggest /diff in
 Claude Code or Codex CLI, or Codex desktop's Review pane, only with the edited Git
@@ -107,6 +113,8 @@ def build_server(client, background="off"):
         "PeerRelay " + client.role, instructions=instructions, log_level="ERROR", watches=watches
     )
 
+    server.changes_viewer = ChangesViewer(client)
+
     def tool(readonly=False, destructive=False):
         def register(function):
             @wraps(function)
@@ -117,6 +125,17 @@ def build_server(client, background="off"):
                     result = await function(*args, **kwargs)
                 else:
                     result = await asyncio.to_thread(function, *args, **kwargs)
+                if client.role == "requester" and isinstance(result, dict):
+                    changes = result.get("changes", {})
+                    if changes.get("state") == "available":
+                        bound = inspect.signature(function).bind(*args, **kwargs).arguments
+                        mode_id = bound.get("mode_id")
+                        task_id = result.get("task_id")
+                        if mode_id and task_id:
+                            try:
+                                changes["view_url"] = server.changes_viewer.link(mode_id, task_id)
+                            except OSError:
+                                changes["viewer_state"] = "unavailable"
                 return untrusted(result, "Bob" if client.role == "requester" else "Alice")
 
             return server.tool(
@@ -310,6 +329,23 @@ def build_server(client, background="off"):
                     answer=answer,
                 ),
             )
+
+        @tool(readonly=True)
+        def view_changes(mode_id: str, task_id: str) -> dict:
+            """Get a local browser review link and counts, without sending patches to the model.
+
+            The page is read-only. Share its URL with the user; do not fetch it with model tools.
+            """
+            status = client.call("status", {"mode_id": mode_id, "task_id": task_id})
+            return {"task_id": task_id, "changes": status.get("changes", {"state": "unavailable"})}
+
+        @tool(readonly=True)
+        def get_changes_for_analysis(mode_id: str, task_id: str) -> dict:
+            """Send the stored diff to the model ONLY when the user explicitly requests analysis.
+
+            To view changes, use view_changes instead; it keeps the patch out of model context.
+            """
+            return client.call("changes", {"mode_id": mode_id, "task_id": task_id})
 
         @tool(readonly=True)
         def get_result(mode_id: str, task_id: str) -> dict:

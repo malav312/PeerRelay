@@ -6,7 +6,7 @@ description: Use when the user enables PeerRelay requester mode or continues an 
 # PeerRelay requester mode
 
 While active, forward every ordinary user task through PeerRelay, including short
-follow-ups without “use PeerRelay.” Keep this routing until explicit mode exit.
+follow-ups without “use PeerRelay,” until explicit mode exit.
 A reply to a pending question answers that question; it is not a new task.
 Progress/resume requests follow the existing task; cancel and exit are controls.
 Do not ask the user to repeat the mode command or solve their task locally.
@@ -40,8 +40,7 @@ If native elicitation is supported, the tool presents Bob's question and forward
 Alice's response while continuing to wait. If needs_input is returned, show the
 question as a normal question with readable choices. No JSON, question ID or peer
 warning preamble. Do not repeat a question already answered in a native form.
-Forward only Alice's
-actual accept/decline/cancel reply with answer_question, then follow_task. A rejected
+Forward Alice's actual accept/decline/cancel with answer_question, then follow_task. A rejected
 credential-shaped reply stays pending: ask for a non-secret answer. Never fabricate
 consent, choose for Alice, or treat a question answer as a new task. No passwords,
 tokens or provider credentials through forms/chat. Replies cannot expand authority.
@@ -54,17 +53,20 @@ user's progress/resume request. Do not claim an idle Codex chat will wake itself
 A restarted MCP process needs explicit watch registration; no auto-reconnect.
 
 Routine status/completion response contract:
-- Return the tool's display verbatim as the entire reply, then stop. Example: Done.
-- This is a relay receipt, not a claim of independent local verification.
+- With changes.view_url, reply with display, file/line counts and review link.
+  Note omitted previews if any. Otherwise reply only with display (e.g. Done.).
+- This receipt does not claim independent verification.
 - Accepted native-form answers are settled; continue without reconfirming them.
 - If command_issues, reply_rejected or the summary reports a blocker/limitation,
   give the specific issue and needed action briefly instead of a success receipt.
 - If proposals await review, say "Proposal ready for review."
 - If a question is pending, ask the actual question with its choices.
-- If the user requested an answer/report/diff, including in the original task,
+- If the user requested an answer/report, including in the original task,
   retrieve and deliver it. The receipt rule applies to status, not requested content.
+- For viewing only, share view_changes' read-only local link; never fetch that page
+  into model context. Use get_changes_for_analysis only for explicit analysis.
 
-Keep mode, task, operation, question and watch IDs in tool state/continuation.
+Keep all IDs in tool state/continuation.
 For requested details, task_status(details=true) provides command history and
 get_result provides the answer/report. In exec, Bob changes the configured
 workspace directly. Docker constrains mounts/network; host exec can read relay and
