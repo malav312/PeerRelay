@@ -4,6 +4,9 @@ A owns the project and submits tasks. B offers their own active Codex or Claude
 Code chat to do the work. Both people stay signed into their own accounts.
 A runs the HTTPS relay; each laptop runs its own local MCP process.
 
+For normal questions, concise mode behavior and the upcoming pairing/automatic
+delivery work, see [session experience](session-experience.md).
+
 Start with the disposable project below. This guide targets macOS/Linux local
 clients; native Windows is not supported by the current filesystem locking code.
 Both laptops need Python 3.13+, uv, Git, and an installed, signed-in native client.

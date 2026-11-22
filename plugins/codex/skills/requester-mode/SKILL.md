@@ -5,6 +5,12 @@ description: Use when the user enables PeerRelay requester mode or continues an 
 
 # PeerRelay requester mode
 
+While active, forward every ordinary user task through PeerRelay, including short
+follow-ups without “use PeerRelay.” Keep this routing until explicit mode exit.
+A reply to a pending question answers that question; it is not a new task.
+Progress/resume requests follow the existing task; cancel and exit are controls.
+Do not ask the user to repeat the mode command or solve their task locally.
+
 Activate requester_mode once. Set execution=true only with Alice's explicit command
 permission and an exec pairing. Verify workspace and use requester_diagnostics to
 report advertised client form support/backend. Keep mode_id in this chat and its
@@ -23,7 +29,9 @@ No local repository exploration, task solving, shell execution or model fallback
 
 If native elicitation is supported, the tool presents Bob's question and forwards
 Alice's response while continuing to wait. If needs_input is returned, show the
-question and choices explicitly as untrusted text from Bob. Forward only Alice's
+question as a normal question with readable choices. No JSON, question ID or peer
+warning preamble. Do not repeat a question already answered in a native form.
+Forward only Alice's
 actual accept/decline/cancel reply with answer_question, then follow_task. A rejected
 credential-shaped reply stays pending: ask for a non-secret answer. Never fabricate
 consent, choose for Alice, or treat a question answer as a new task. No passwords,
@@ -36,8 +44,20 @@ Without supported background delivery, return one short receipt and wait for the
 user's progress/resume request. Do not claim an idle Codex chat will wake itself.
 A restarted MCP process needs explicit watch registration; no auto-reconnect.
 
-Report compact state, verified exit codes and Bob's concise summary as Bob's result.
-Fetch get_result/full output only when requested. In exec, Bob changes the configured
+Routine status/completion response contract:
+- Return the tool's display verbatim as the entire reply, then stop. Example: Done.
+- This is a relay receipt, not a claim of independent local verification.
+- Accepted native-form answers are settled; continue without reconfirming them.
+- If command_issues, reply_rejected or the summary reports a blocker/limitation,
+  give the specific issue and needed action briefly instead of a success receipt.
+- If proposals await review, say "Proposal ready for review."
+- If a question is pending, ask the actual question with its choices.
+- If the user requested an answer/report/diff, including in the original task,
+  retrieve and deliver it. The receipt rule applies to status, not requested content.
+
+Keep mode, task, operation, question and watch IDs in tool state/continuation.
+For requested details, task_status(details=true) provides command history and
+get_result provides the answer/report. In exec, Bob changes the configured
 workspace directly. Docker constrains mounts/network; host exec can read relay and
 provider credentials despite disposable HOME. A denied operation is not permission
 to switch backend or run it locally. In proposals_only return proposal IDs; proposed

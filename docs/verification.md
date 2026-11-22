@@ -1,3 +1,27 @@
+# Conversation experience verification — November 21, 2026
+
+The first [session experience](session-experience.md) slice passes **201 tests**,
+with eight optional container tests skipped and one existing Starlette/httpx
+warning. Ruff and whitespace checks pass. Old JSON/warning question rendering and
+verbose status failed the new assertions before implementation. Real MCP tests
+verify normal readable forms, Unicode custom answers and unchanged task identity;
+follow tests verify accept/decline/cancel. Compact status preserves exceptional
+commands and provides full history on request.
+
+Independent review found no important introduced regression. Fresh role behavior
+simulations passed seven routing/verbosity scenarios. Native UI rendering and
+provider-token savings remain unmeasured. A pre-existing minor difference remains:
+the legacy wait_for_update tool reports invalid credential-like replies as an
+error, while submit_and_follow returns pending context plus reply_rejected.
+
+The separate Codex 0.171.0 feasibility probe attached a native terminal and local
+controller to the same explicit thread over a private Unix socket, observed a
+metadata update in the terminal and exited with zero turns. It used isolated test
+configuration and no outbound IP networking. This verifies transport/thread binding,
+not inference wakeup, approval ownership, automatic task execution or reconnect.
+
+---
+
 # Native client setup verification — November 21, 2026
 
 The pairing branch's portable suite passes **197 tests**, with eight optional

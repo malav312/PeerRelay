@@ -28,7 +28,8 @@ def test_single_sdk_call_handles_questions_and_reconnect_followup(transport_pair
 
         async def elicit(ctx, request):
             received.append(request.message)
-            return ElicitResult(action="accept", content={"answer": "yes"})
+            assert request.requestedSchema["properties"]["answer"]["title"] == "Your answer"
+            return ElicitResult(action="accept", content={"answer": "Custom — 多字"})
 
         async with (
             stdio_client(params("requester")) as (ar, aw),
@@ -54,8 +55,8 @@ def test_single_sdk_call_handles_questions_and_reconnect_followup(transport_pair
                         dict(
                             **common,
                             operation_id=str(number),
-                            message="Continue?",
-                            choices=["yes", "no"],
+                            message="Which separator—one or many?",
+                            choices=["One character", "Any string (recommended)"],
                         ),
                     )
                 )
@@ -65,9 +66,14 @@ def test_single_sdk_call_handles_questions_and_reconnect_followup(transport_pair
                     )
                 )
                 assert answer["action"] == "accept"
+                assert answer["answer"] == "Custom — 多字"
             decode(await b.call_tool("complete_task", dict(**common, summary="done")))
             result = decode(await pending)
             assert result["state"] == "succeeded" and len(received) == 2
+            assert received == [
+                "Which separator—one or many?\n\n1. One character\n2. Any string (recommended)"
+            ] * 2
+            assert result["questions"] == []
             duplicate = decode(await a.call_tool("submit_and_follow", dict(args, seconds=0)))
             assert duplicate["task_id"] == claimed["task_id"]
             decode(await b.call_tool("disconnect", dict(lease_id=lease)))

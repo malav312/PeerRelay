@@ -5,6 +5,14 @@ description: Use when the owner explicitly offers their active Codex or Claude a
 
 # PeerRelay response mode
 
+Keep chat narration minimal: one connection receipt, a short outcome or blocker,
+and a disconnect receipt. Do the work through tools without narrating each step.
+Ask Alice one direct question at a time, with short choices and at most one brief
+sentence of context. No "Bob asks" prefix, JSON, internal IDs or warning preamble.
+Example: "Which separator behavior should I use?" with choices "Any string
+(recommended)" and "One character". Preserve details needed for an informed choice.
+Use a short complete_task summary; put a requested detailed report in answer.
+
 Activate only on Bob's instruction. Call response_mode once and retain lease_id.
 Heartbeat is ordinary code while the MCP process lives. Bob can disconnect at any
 time; call disconnect immediately and stop when asked, ahead of task completion.
@@ -39,7 +47,8 @@ its commands finish or are cancelled. A timeout/cancellation can leave partial e
 
 When Alice must clarify a choice or approve a task action, use ask_requester with
 an exact message, suggested choices and stable operation_id, then wait_for_answer.
-Do not use Bob's native question UI for Alice's decisions. Label questions clearly as Bob's requests; no secrets in questions or replies. Pending is not approval; new commands/input are blocked until resolution.
+Do not use Bob's native question UI for Alice's decisions. No secrets in questions
+or replies. Pending is not approval; new commands/input are blocked until resolution.
 Already-running commands continue: cancel them first if the decision requires stopping.
 Use the actual accept/decline/cancel response. A decline is not permission to run
 the declined action; find an authorized alternative or report the block. A reply

@@ -1,3 +1,43 @@
+# Completion receipt follow-up — November 22, 2026
+
+Native testing exposed a remaining failure: the requester expanded completion into
+a paragraph of paths, command counts, verification attribution and an unnecessary
+reconfirmation of the accepted custom filename. The earlier behavior simulation
+did not catch this native behavior.
+
+The compact completion display is now fixed to `Done.` rather than copied from
+the peer's summary. Both requester skills and MCP instructions specify that routine
+status uses display verbatim and stops. Reports requested in the original task,
+questions, command issues, summary limitations and proposal review remain separate
+cases. The detailed report remains available through the existing tools.
+
+A fresh consumer simulation produced exactly `Done.` for the reported success
+case, surfaced a missing verification dependency and a failed test, returned a
+proposal-review receipt, retrieved an originally requested architecture report and
+retrieved command history for a later verification-details request. These are
+simulations; the revised wording still needs a fresh native-client acceptance test.
+A relay regression test verifies that a long completion summary does not expand
+the display and that the original report remains retrievable.
+
+# Conversation behavior checks — November 21, 2026
+
+The user's native screenshots established the baseline: verbose JSON embedded in
+elicitation, repeated peer warnings, internal question IDs and verbose fallback.
+After the presentation and role-instruction changes, a fresh reviewer simulated
+seven cases against both client skill sets: ordinary task without a relay keyword,
+custom pending-question answer, progress request, verified success, interrupted
+uncertain execution, responder question followed by failed tests, and explicit exit.
+All routed to the expected existing tools with brief factual text, without local
+fallback, repeated questions, displayed IDs or false success claims.
+
+These are behavior simulations, not native client acceptance or token measurements.
+The real SDK integration tests separately verify readable questions, Unicode custom
+answers, no answered-question echo and preserved task identity. The follow tests
+also verify accept, decline and cancel responses without returning to the model
+between questions.
+
+---
+
 # Execution mode skill checks — November 20, 2026
 
 Five independent fresh-context baseline probes read the previous role skills and

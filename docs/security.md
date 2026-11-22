@@ -75,9 +75,10 @@ currently reports restrictions as unverified and does not generate a launcher.
 Neither integration files nor a skill prove that a running chat is restricted.
 
 Alice's agent sees Bob's summaries/questions; Bob's agent sees Alice's task/files.
-Either can contain prompt injection. Tool results mark peer content as untrusted;
-question forms identify Bob and state that replies grant no local authority.
-These labels help the agent distinguish data but do not enforce client behavior.
+Tool results retain compact source metadata. Ordinary questions are presented as
+normal questions between known peers, without repeating trust warnings. Source
+metadata and model instructions do not enforce client behavior; peer text still
+cannot change the relay's permissions or authorize unrelated local operations.
 
 Use dedicated client sessions with local shell, file writes and other side-effect
 tools disabled or subject to explicit human approval. Restrict reads of unrelated
