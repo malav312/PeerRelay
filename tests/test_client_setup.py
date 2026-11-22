@@ -147,3 +147,59 @@ def test_launcher_passes_only_restricted_arguments_to_native_client(tmp_path, pa
     assert args[args.index("--mcp-config") + 1] == str(directory / "mcp.json")
     assert args[args.index("--permission-mode") + 1] == "dontAsk"
     assert args[args.index("--allowedTools") + 1] == "mcp__peerrelay__*"
+
+
+def test_channel_setup_is_explicit_and_never_claims_verified(tmp_path, pair):
+    from agent_relay.client_setup import prepare
+
+    directory = tmp_path / "channel"
+    report = prepare(
+        "claude", pair / "requester/client.json", directory, background="claude-channel"
+    )
+    assert report["background"] == "claude-channel"
+    assert report["background_delivery"] == "configured_unverified"
+    args = json.loads((directory / "mcp.json").read_text())["mcpServers"]["peerrelay"]["args"]
+    assert args[-2:] == ["--background", "claude-channel"]
+    assert "confirmation" in (directory / "NEXT-STEPS.txt").read_text()
+    for client, background in [("codex", "claude-channel"), ("claude", "unsupported")]:
+        with pytest.raises(ValueError):
+            prepare(
+                client, pair / "requester/client.json", tmp_path / "invalid", background=background
+            )
+        assert not (tmp_path / "invalid").exists()
+
+
+@pytest.mark.parametrize("supported", [False, True])
+def test_channel_launcher_handles_hidden_flag_and_native_rejection(tmp_path, pair, supported):
+    from agent_relay.client_setup import CLAUDE_FLAGS, prepare
+
+    directory = tmp_path / "channel"
+    prepare("claude", pair / "requester/client.json", directory, background="claude-channel")
+    native = tmp_path / "bin"
+    native.mkdir()
+    client = native / "claude"
+    flags = " ".join(CLAUDE_FLAGS)
+    client.write_text(
+        f"#!{sys.executable}\nimport json, sys\n"
+        f"if '--help' in sys.argv: print({flags!r})\n"
+        f"elif not {supported!r}:\n"
+        " print('Unknown option --dangerously-load-development-channels', file=sys.stderr)\n"
+        " sys.exit(2)\n"
+        "else: print(json.dumps(sys.argv[1:]))\n"
+    )
+    client.chmod(0o700)
+    result = subprocess.run(
+        [str(directory / "start")],
+        env={**os.environ, "PATH": str(native)},
+        capture_output=True,
+        text=True,
+    )
+    if not supported:
+        assert result.returncode != 0
+        assert "channel" in result.stderr.lower()
+    else:
+        assert result.returncode == 0, result.stderr
+        args = json.loads(result.stdout)
+        assert args[args.index("--dangerously-load-development-channels") + 1] == "server:peerrelay"
+        assert args[args.index("--tools") + 1] == ""
+        assert args[args.index("--permission-mode") + 1] == "dontAsk"

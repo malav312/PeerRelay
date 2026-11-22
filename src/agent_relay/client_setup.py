@@ -38,9 +38,13 @@ def _skill(client, mode):
     raise ValueError("Role skill is missing; reinstall PeerRelay from a complete package")
 
 
-def prepare(client, config_path, directory):
+def prepare(client, config_path, directory, background="off"):
     if client not in ("claude", "codex"):
         raise ValueError("Choose claude or codex")
+    if background not in ("off", "claude-channel"):
+        raise ValueError("Unsupported background adapter")
+    if background == "claude-channel" and client != "claude":
+        raise ValueError("Claude channels require the Claude client")
     config_path = private_file(Path(config_path).expanduser().absolute())
     config = load(config_path)
     # Validates role, URL, certificate and credential permissions without network I/O.
@@ -55,6 +59,8 @@ def prepare(client, config_path, directory):
         raise ValueError("Chat directory needs an existing, non-symlinked parent")
     directory.mkdir(mode=0o700)
     args = ["-m", "agent_relay.cli", "mcp", "--config", str(config_path)]
+    if background == "claude-channel":
+        args.extend(["--background", background])
     mcp = {"mcpServers": {"peerrelay": {"command": sys.executable, "args": args}}}
     _write(directory / "mcp.json", json.dumps(mcp, indent=2) + "\n")
     skill_root = ".claude" if client == "claude" else ".agents"
@@ -67,6 +73,8 @@ def prepare(client, config_path, directory):
         "connection": "not_started",
         "native_acceptance": "pending",
         "local_tools": "launch_controls_configured" if client == "claude" else "unverified",
+        "background": background,
+        "background_delivery": "configured_unverified" if background != "off" else "off",
     }
     _write(directory / "setup.json", json.dumps(report, indent=2) + "\n")
     if client == "claude":
@@ -102,6 +110,13 @@ def prepare(client, config_path, directory):
             f"{add}\n"
             "Restart the client and open this directory. A shell-disable toggle or\n"
             "read-only sandbox alone does not establish local-read isolation.\n"
+        )
+    if background == "claude-channel":
+        next_step += (
+            "Claude channels are a research preview. Complete native human confirmation;\n"
+            "organization policy still applies. Run probe_background for your mode and\n"
+            "acknowledge the received event. Delivery stays unverified until that ack.\n"
+            "If unavailable, use bounded follow/resume; never claim automatic delivery.\n"
         )
     _write(
         directory / "NEXT-STEPS.txt",
@@ -140,6 +155,15 @@ def start(directory):
     help_result = subprocess.run([executable, "--help"], capture_output=True, text=True, timeout=15)
     if help_result.returncode or any(flag not in help_result.stdout for flag in CLAUDE_FLAGS):
         raise ValueError("Installed Claude Code lacks required restriction flags; launch refused")
+    background = report.get("background", "off")
+    if background not in ("off", "claude-channel"):
+        raise ValueError("Unsupported background adapter; generate a new setup")
+    channel_args = []
+    if background == "claude-channel":
+        flag = "--dangerously-load-development-channels"
+        # Claude hides this documented option from --help. Let its native parser
+        # reject unsupported versions; a successful launch still is not receipt evidence.
+        channel_args = [flag, "server:peerrelay"]
     os.chdir(directory)
     os.execv(
         executable,
@@ -156,6 +180,7 @@ def start(directory):
             "dontAsk",
             "--allowedTools",
             "mcp__peerrelay__*",
+            *channel_args,
         ],
     )
 

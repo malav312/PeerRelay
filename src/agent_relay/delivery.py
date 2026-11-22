@@ -283,6 +283,8 @@ class RelayMonitor:
             raise ValueError("Relay role differs from native binding")
         self.controller, self.relay, self.clock = controller, relay, clock
         self.tasks = set()
+        self.observed = {}
+        self.lock = asyncio.Lock()
         self.next_heartbeat = 0
 
     def watch_task(self, task_id):
@@ -292,7 +294,31 @@ class RelayMonitor:
             raise ValueError("At most 128 task watches per binding")
         self.tasks.add(identifier(task_id))
 
+    def forget_task(self, task_id):
+        self.tasks.discard(task_id)
+        self.observed.pop(task_id, None)
+        with self.controller.db:
+            self.controller.db.execute(
+                "UPDATE events SET state='discarded' WHERE task_id=? AND state='pending'",
+                (task_id,),
+            )
+
+    def consume(self, task_id, state):
+        """Record status actually returned to the requester, suppressing duplicate wakes.
+
+        Caller holds lock, sharing the snapshot boundary with poll().
+        """
+        self.forget_task(task_id)
+        if state["state"] in ("queued", "running"):
+            self.watch_task(task_id)
+            pending = state.get("questions", [])
+            self.observed[task_id] = "question:" + pending[0]["question_id"] if pending else None
+
     async def poll(self):
+        async with self.lock:
+            await self._poll()
+
+    async def _poll(self):
         controller, binding = self.controller, self.controller.binding
         if controller.state != "active":
             return
@@ -323,7 +349,9 @@ class RelayMonitor:
                         events.append(Event("task_finished", task, "terminal:" + state["state"]))
                     elif state["questions"]:
                         question = state["questions"][0]["question_id"]
-                        events.append(Event("question_ready", task, "question:" + question))
+                        marker = "question:" + question
+                        if self.observed.get(task) != marker:
+                            events.append(Event("question_ready", task, marker))
             if controller.state == "active":
                 controller.replace_pending(events)
         except asyncio.CancelledError:

@@ -3,14 +3,16 @@
 This branch implements Codex session ownership, durable event delivery and relay
 waiting in code. It includes a runnable acceptance demo using a disposable real
 relay and scripted native turns, plus the experimental `codex-responder` launcher
-for an existing responder bundle. The launcher owns role activation and binds
+for an existing responder bundle. The `codex-requester` launcher now binds an
+existing requester bundle to its own mode and registers submitted tasks in code. The launcher owns role activation and binds
 task tools to its exact native thread and lease. See [client sessions](client-sessions.md#dedicated-automatic-codex-responder-experimental)
 for launch instructions. Existing installed chats are not retroactively connected
 to this controller; native model/TUI acceptance remains pending.
 
 The chosen Codex experience is a dedicated native terminal using that person's
 own sign-in. An arbitrary existing desktop conversation is not a delivery target.
-Claude's existing opt-in channel adapter is unchanged in this stage. All four
+Claude requesters can opt in through `client-setup --background claude-channel`;
+mode-bound probe acknowledgement verifies notification receipt. All four
 Claude/Codex requester/responder pairings remain in the product scope.
 
 ## What runs now
@@ -129,7 +131,23 @@ Each runs one synthetic turn with no external provider inference or account
 credentials. Outbound connections are restricted to localhost. These checks cover
 native dispatch and policy enforcement, not a live model's choice of tools.
 
-## Next integration stage
+## Requester delivery
+
+See [automatic requester acceptance](seamless-requester-test.md) for both clients.
+Codex uses immediate tool status plus owned native event delivery. Claude uses
+bounded follow plus a task watch when waiting expires. Only questions and terminal
+states wake the requester; tool output consumed in the foreground is not echoed.
+The native requester probe is:
+
+```sh
+PYTHONPATH=src .venv/bin/python scripts/probe_codex_tool_roundtrip.py --requester --terminal
+```
+
+The historical integration checklist below predates these requester adapters.
+Actual-project setup and ordinary bootstrap-to-native-launcher integration remain
+future work; current launchers use existing bundles and fresh private sessions.
+
+## Original integration checklist
 
 The dedicated responder command now covers native startup, exact lease activation,
 tool registration and owner cleanup. Remaining work includes bootstrap/role-command

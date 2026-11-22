@@ -18,7 +18,8 @@ def test_completion_receipt_does_not_expand_peer_summary(relay):  # noqa: F811
         "All three commands finished without errors. A byte-for-byte check matched."
     )
     relay.call(
-        "responder", "complete",
+        "responder",
+        "complete",
         dict(lease_id=lease, task_id=task, summary=summary, answer="Verification details."),
     )
     result = asyncio.run(follow(DirectClient(relay), mode, task, context(False), seconds=0))
@@ -99,3 +100,99 @@ def test_status_compacts_command_history_and_retains_failures_and_details():
     assert len(detailed["commands"]) == 102
     assert compact["display"] == "Working."
     assert compact["_peer_content"] == {"origin": "Bob"}
+
+
+def test_structured_receipt_compacts_summary_with_measured_fixture_byte_reduction():
+    import json
+
+    from agent_relay.presentation import task_view
+
+    result = {
+        "task_id": "task",
+        "state": "succeeded",
+        "summary": "Long successful report. " * 80,
+        "completion": {
+            "version": 1,
+            "status": "completed",
+            "verification": "passed",
+            "limitations": [],
+        },
+        "answer_available": True,
+        "questions": [],
+        "proposals": [],
+        "changes": {"state": "available", "files_changed": 2, "additions": 7, "deletions": 3},
+        "commands": [
+            {"command_id": f"ok-{n}", "state": "exited", "exit_code": 0} for n in range(100)
+        ],
+    }
+    compact = task_view(result)
+    assert compact["display"] == "Done. 2 files changed, +7/-3."
+    assert compact["answer_available"] is True
+    assert "summary" not in compact and "commands" not in compact
+    assert len(json.dumps(compact).encode()) < len(json.dumps(result).encode()) / 5
+    assert task_view(result, details=True)["summary"] == result["summary"]
+    assert "summary" in result  # Projection does not alter its source.
+
+
+def test_partial_blocked_and_failed_or_missing_verification_do_not_display_done():
+    from agent_relay.presentation import task_view
+
+    for status, verification in [
+        ("partial", "passed"),
+        ("blocked", "not_run"),
+        ("completed", "failed"),
+        ("completed", "not_run"),
+    ]:
+        result = task_view(
+            {
+                "state": "succeeded",
+                "summary": "A detailed report.",
+                "commands": [],
+                "completion": {
+                    "version": 1,
+                    "status": status,
+                    "verification": verification,
+                    "limitations": [],
+                },
+            }
+        )
+        assert result["display"] == "Needs attention."
+        assert result["completion"]["status"] == status
+        assert result["completion"]["verification"] == verification
+        assert "summary" not in result
+
+
+def test_failed_commands_stay_visible_even_when_completion_claims_success():
+    from agent_relay.presentation import task_view
+
+    failed = {"command_id": "failed", "state": "exited", "exit_code": 1}
+    result = task_view(
+        {
+            "state": "succeeded",
+            "summary": "done",
+            "commands": [failed],
+            "completion": {
+                "version": 1,
+                "status": "completed",
+                "verification": "passed",
+                "limitations": [],
+            },
+        }
+    )
+    assert result["display"] == "Needs attention."
+    assert result["command_issues"] == [failed]
+
+
+def test_invalid_or_future_completion_never_hides_summary():
+    from agent_relay.presentation import task_view
+
+    for completion in (None, {}, {"version": 2}, "invalid"):
+        result = task_view(
+            {
+                "state": "succeeded",
+                "summary": "Blocked on native acceptance.",
+                "completion": completion,
+                "commands": [],
+            }
+        )
+        assert result["summary"] == "Blocked on native acceptance."

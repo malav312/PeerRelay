@@ -125,3 +125,18 @@ contain no JSON/IDs/warning paragraph, the custom answer reaches the same task,
 and the final reply stays short. Ask for details once to verify they remain
 available. Existing delivery adapters may still require a manual resume during
 this first-slice test. Do not label that unattended delivery acceptance.
+
+## Structured outcomes and automatic requester delivery
+
+New completions can send a validated version1 outcome, verification result and
+bounded limitations. Routine projections omit the narrative summary and automatic
+browser URL; explicit task-only viewing still returns a link. Unknown/legacy
+outcomes retain the summary so older clients cannot silently hide limitations.
+The display includes counts, and failed commands or incomplete verification still
+require attention. Requested reports remain available through get_result.
+
+Both requester adapters are described in [the test guide](seamless-requester-test.md).
+Waiting runs in code; client support and an acknowledged probe determine Claude
+availability. Codex automatic delivery uses its owned native session. Prompt-based
+routing still requires client compliance; this is not deterministic interception
+of arbitrary existing chats or a measured token-saving claim.

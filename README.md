@@ -132,3 +132,11 @@ uv run pytest -q
 uv run ruff check src tests
 uv run ruff format --check src tests
 ```
+
+### Automatic requester follow-up
+
+Both Claude and Codex requester paths are available for testing. See
+[automatic requester setup and acceptance](docs/seamless-requester-test.md) for
+channel opt-in, the dedicated Codex requester, compact completion outcomes and
+known client limitations. Native acceptance is required before relying on background
+delivery in a particular client configuration.
