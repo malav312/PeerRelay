@@ -78,8 +78,9 @@ pair or undo remote work.
 
 The local view is loopback-only, uses an unguessable per-process URL, rejects foreign
 Host/Origin headers, disables caching/referrers/framing and loads no external assets.
-Closing the MCP process closes its views, disconnects clients and stops only relays
-it started. A restart retains the pairing but does not reconnect a response lease
+Closing the MCP process invalidates its view URLs, disconnects clients and stops
+only relays it started. Requests that were authorized before shutdown cannot start
+new pairing or relay work if their bodies arrive afterward. A restart retains the pairing but does not reconnect a response lease
 or restart a relay automatically. Interrupted work still requires reconciliation.
 
 ## Verified locally and remaining acceptance

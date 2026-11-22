@@ -25,11 +25,14 @@ def start_view(setups):
                 return None
             token = self.path.split("/")[1]
             with setups.lock:
+                if setups.closed:
+                    self.send_error(410, "Setup is closed")
+                    return None
                 session = next(
                     (
                         s
                         for s in setups.sessions.values()
-                        if secrets.compare_digest(s.view_token, token)
+                        if not s.closed and secrets.compare_digest(s.view_token, token)
                     ),
                     None,
                 )
@@ -64,6 +67,9 @@ def start_view(setups):
                 return
             if self.path.endswith("/state"):
                 with session.lock:
+                    if session.closed or setups.closed:
+                        self.send_error(410, "Setup is closed")
+                        return
                     pair_dir = session.directory / "pair"
                     config = pair_dir / (
                         "requester/client.json"
