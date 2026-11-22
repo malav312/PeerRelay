@@ -113,6 +113,22 @@ The production transport passed this probe on Codex CLI 0.171.0 with zero turns.
 A preceding standalone spike demonstrated a terminal observing controller metadata
 on the same exact thread; that is separate evidence, not this probe's assertion.
 
+## Exercise native tool dispatch without external inference
+
+```sh
+PYTHONPATH=src .venv/bin/python scripts/probe_codex_tool_roundtrip.py --terminal
+PYTHONPATH=src .venv/bin/python scripts/probe_codex_tool_roundtrip.py --terminal --host-disabled
+```
+
+The first command uses a local scripted Responses provider and an attached native
+terminal to route `exec` calls through `ResponderBridge`. It verifies `wait_for_task`,
+`remote_read`, the runtime tool inventory, and rejection of a disposable local
+`apply_patch` write. The second is a negative control: it reproduces
+`code-mode host is disabled` and verifies that no bridge call occurs.
+Each runs one synthetic turn with no external provider inference or account
+credentials. Outbound connections are restricted to localhost. These checks cover
+native dispatch and policy enforcement, not a live model's choice of tools.
+
 ## Next integration stage
 
 The dedicated responder command now covers native startup, exact lease activation,

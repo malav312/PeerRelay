@@ -32,7 +32,6 @@ DISABLED_FEATURES = (
     "skill_mcp_dependency_install",
     "workspace_dependencies",
     "code_mode",
-    "code_mode_host",
     "memories",
     "sleep_tool",
     "tool_suggest",
@@ -48,6 +47,10 @@ def native_overrides():
         "mcp_servers": {},
         "features": {
             **dict.fromkeys(DISABLED_FEATURES, False),
+            # Native models may route registered tools through exec even when
+            # code_mode is false. This runtime is needed for the relay bridge;
+            # shell, apps, browser and delegation remain separately disabled.
+            "code_mode_host": True,
             "skip_host_skill_discovery": True,
         },
     }

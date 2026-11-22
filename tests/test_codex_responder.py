@@ -123,6 +123,15 @@ def test_config_accepts_retained_mcp_definitions_only_when_explicitly_disabled()
             validate_config(config)
 
 
+def test_config_refuses_disabled_native_tool_runtime():
+    from agent_relay.codex_responder import native_overrides, validate_config
+
+    config = native_overrides()
+    config["features"]["code_mode_host"] = False
+    with pytest.raises(ValueError, match="feature restrictions"):
+        validate_config(config)
+
+
 @pytest.mark.parametrize("failure", [None, "terminal", "start", "delivery"])
 def test_launcher_owns_exact_lease_and_cleans_up(tmp_path, monkeypatch, failure):
     from agent_relay import codex_responder as module

@@ -152,7 +152,14 @@ An uncertain native turn start is recorded and never automatically replayed.
 
 Startup checks enforce read-only sandbox writes, no approval escalation, disabled
 shell/execution, apps, browser, web search, plugins and delegation features. The
-launcher discovers existing MCP registrations from its fresh working directory
+native code-mode host remains enabled because some models dispatch PeerRelay
+tools through Codex's `exec` tool even with code-mode presentation disabled.
+This is the native tool runtime; project commands still use PeerRelay's
+`remote_execute` on Alice's configured backend. Native utility tools, including
+`apply_patch`, may still be advertised and remain subject to the read-only policy;
+the launcher does not promise a tool inventory containing only PeerRelay.
+
+The launcher discovers existing MCP registrations from its fresh working directory
 and disables each through session-only command overrides. Saved MCP configuration
 is unchanged. It checks the effective configuration before creating a native thread
 and refuses startup if any server remains enabled. These controls **do not establish total local-read isolation**: native file
@@ -163,5 +170,9 @@ its permissions is outside the validated configuration.
 
 Validation includes a disposable TLS relay flow through the real MCP handlers and
 an outbound-denied, credential-free native metadata probe with zero model turns.
+An additional local scripted-provider probe exercises native `exec` dispatch with
+the TUI attached, checks relay results, and verifies a local write is denied. Its
+negative control reproduces the disabled-host failure. See
+[the probe commands](automatic-delivery.md#exercise-native-tool-dispatch-without-external-inference).
 Live model tool compliance, native human-turn concurrency and a signed-in TUI remain
 manual acceptance checks. No provider inference is part of the automated suite.
