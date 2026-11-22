@@ -1,3 +1,24 @@
+# Completion receipt follow-up — November 22, 2026
+
+Native testing exposed a remaining failure: the requester expanded completion into
+a paragraph of paths, command counts, verification attribution and an unnecessary
+reconfirmation of the accepted custom filename. The earlier behavior simulation
+did not catch this native behavior.
+
+The compact completion display is now fixed to `Done.` rather than copied from
+the peer's summary. Both requester skills and MCP instructions specify that routine
+status uses display verbatim and stops. Reports requested in the original task,
+questions, command issues, summary limitations and proposal review remain separate
+cases. The detailed report remains available through the existing tools.
+
+A fresh consumer simulation produced exactly `Done.` for the reported success
+case, surfaced a missing verification dependency and a failed test, returned a
+proposal-review receipt, retrieved an originally requested architecture report and
+retrieved command history for a later verification-details request. These are
+simulations; the revised wording still needs a fresh native-client acceptance test.
+A relay regression test verifies that a long completion summary does not expand
+the display and that the original report remains retrievable.
+
 # Conversation behavior checks — November 21, 2026
 
 The user's native screenshots established the baseline: verbose JSON embedded in

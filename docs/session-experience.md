@@ -29,10 +29,14 @@ cancel and mode exit remain controls. No repeated “use PeerRelay” prefix is 
 This is specified in the native role instructions; deterministic input interception
 is a separate integration task.
 
-Routine output is a short status or verified outcome, such as “Working.” or
-“Implemented. Tests passed.” A question is shown only when input is needed. Failed
+Routine status uses the returned display verbatim: “Working.” or “Done.”, then stops.
+“Done.” acknowledges relay completion; it does not assert independent requester
+verification. The requester does not narrate command counts or reconfirm an accepted
+native answer. A question is shown only when input is needed. Failed
 commands, rejected answers and uncertain effects still receive a concise explanation.
-Full answers, command history and diffs are on request. Changes remain subject to
+Full answers, command history and diffs are on request, including requests in the
+original task. Summary-reported limitations are still surfaced; proposals awaiting
+approval say “Proposal ready for review.” Changes remain subject to
 the existing project/backend permissions.
 
 The MCP status view aggregates successful command history rather than sending it

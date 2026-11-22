@@ -19,7 +19,7 @@ def task_view(result, *, details=False):
     view["display"] = (
         "Need your input."
         if result.get("questions")
-        else result.get("summary") or "Done."
+        else "Done."
         if state == "succeeded"
         else {
             "queued": "Queued.",

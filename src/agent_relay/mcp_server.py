@@ -16,10 +16,16 @@ from .presentation import task_view
 REQUESTER_INSTRUCTIONS = """PeerRelay requester mode routes this chat to Bob until exit.
 Every ordinary user task/follow-up goes through PeerRelay without repeating the mode
 command. Pending-question answers resolve that question; progress follows the existing
-task; cancel/exit are controls, not new tasks. Keep routine chat output to one short
-line: Working, Need your input, or the verified outcome. Ask questions normally with
+task; cancel/exit are controls, not new tasks. Routine status/completion response:
+return display verbatim as the entire reply, then stop. Example: Done.
+That is a relay receipt, not a claim of independent local verification. Accepted
+native-form answers are already settled; continue without reconfirming them.
+If command_issues, reply_rejected or the summary reports a blocker/limitation, instead
+give the specific issue and needed action briefly. If proposals await review, say
+Proposal ready for review. If the user requested an answer/report/diff (including
+in the original task), retrieve and deliver it; the receipt rule is for status only.
+Ask questions normally with
 readable choices: no JSON, internal IDs, peer-warning preamble or answered-form echo.
-Use display for concise status, but surface command_issues, reply_rejected and blockers.
 Only say Implemented for completed changes. Keep IDs in tool state/continuation.
 Details/diffs are on request; task_status(details=true) retrieves full command history.
 Activate requester_mode once; execution=true only on Alice's explicit authorization

@@ -6,6 +6,29 @@ from agent_relay.follow import follow
 from agent_relay.mcp_server import build_server
 
 
+def test_completion_receipt_does_not_expand_peer_summary(relay):  # noqa: F811
+    mode = relay.call("requester", "requester_mode", {})["mode_id"]
+    lease = relay.call("responder", "response_mode", {})["lease_id"]
+    task = relay.call("requester", "submit", dict(mode_id=mode, operation_id="t", prompt="work"))[
+        "task_id"
+    ]
+    relay.call("responder", "claim", dict(lease_id=lease))
+    summary = (
+        "Created custom.txt containing question test passed plus a newline. "
+        "All three commands finished without errors. A byte-for-byte check matched."
+    )
+    relay.call(
+        "responder", "complete",
+        dict(lease_id=lease, task_id=task, summary=summary, answer="Verification details."),
+    )
+    result = asyncio.run(follow(DirectClient(relay), mode, task, context(False), seconds=0))
+    assert result["display"] == "Done."
+    # Compact receipts must not destroy the report available on explicit request.
+    report = relay.call("requester", "result", dict(mode_id=mode, task_id=task))
+    assert report["summary"] == summary
+    assert report["answer"] == "Verification details."
+
+
 def test_question_fallback_is_readable_without_mutating_stored_question(relay):  # noqa: F811
     mode = relay.call("requester", "requester_mode", {})["mode_id"]
     lease = relay.call("responder", "response_mode", {})["lease_id"]
