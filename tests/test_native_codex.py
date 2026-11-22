@@ -391,3 +391,55 @@ def test_thread_options_cannot_change_the_bound_working_directory(tmp_path, monk
             assert not directory.exists()
 
     asyncio.run(run())
+
+
+def test_dynamic_requests_do_not_block_reader_and_require_explicit_handler():
+    from agent_relay.native_codex import NativeRPC
+
+    class Wire:
+        def __init__(self):
+            self.inbox, self.sent = asyncio.Queue(), []
+
+        async def send(self, data):
+            message = json.loads(data)
+            self.sent.append(message)
+            if message.get("method") == "initialize":
+                await self.inbox.put(json.dumps({"id": message["id"], "result": {}}))
+
+        async def recv(self):
+            return await self.inbox.get()
+
+        async def close(self):
+            pass
+
+    async def run():
+        wire, release = Wire(), asyncio.Event()
+
+        async def handler(params):
+            await release.wait()
+            return {
+                "success": True,
+                "contentItems": [{"type": "inputText", "text": params["tool"]}],
+            }
+
+        rpc = await NativeRPC.connect_wire(wire, experimental=True, tool_handler=handler)
+        try:
+            assert wire.sent[0]["params"]["capabilities"]["experimentalApi"] is True
+            await wire.inbox.put(
+                json.dumps(
+                    {"id": "tool1", "method": "item/tool/call", "params": {"tool": "remote_read"}}
+                )
+            )
+            await wire.inbox.put(json.dumps({"method": "turn/completed", "params": {}}))
+            await asyncio.wait_for(rpc.notifications.get(), 1)
+            assert not rpc.closed.is_set()
+            release.set()
+            for _ in range(20):
+                if any(m.get("id") == "tool1" for m in wire.sent):
+                    break
+                await asyncio.sleep(0)
+            assert next(m for m in wire.sent if m.get("id") == "tool1")["result"]["success"]
+        finally:
+            await rpc.close()
+
+    asyncio.run(run())

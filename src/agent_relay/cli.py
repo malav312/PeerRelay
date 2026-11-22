@@ -21,6 +21,9 @@ def main():
     client_setup.add_argument("--directory", required=True, help="New private chat directory")
     client_start = sub.add_parser("client-start", help="Launch a prepared restricted Claude chat")
     client_start.add_argument("--directory", required=True)
+    codex = sub.add_parser("codex-responder", help="Launch a dedicated native Codex responder")
+    codex.add_argument("--config", required=True, help="Existing responder client.json")
+    codex.add_argument("--directory", required=True, help="New private session directory")
     init = sub.add_parser("init", help="Create a fresh pair outside the project")
     sub.add_parser("proposal", help="Human-only local inspect/status/approve/reject")
     init.add_argument("--grant", choices=("ro", "rw", "exec"), default="ro")
@@ -69,6 +72,20 @@ def main():
     mcp.add_argument("--config", required=True)
     mcp.add_argument("--background", choices=("off", "claude-channel"), default="off")
     args = parser.parse_args()
+    if args.command == "codex-responder":
+        import asyncio
+
+        from .codex_responder import run_responder
+
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            parser.error("Dedicated Codex responder requires a human terminal")
+        try:
+            asyncio.run(run_responder(args.config, args.directory))
+        except KeyboardInterrupt:
+            raise SystemExit(130) from None
+        except (ValueError, OSError, RuntimeError) as error:
+            parser.error(str(error))
+        return
     if args.command in ("client-setup", "client-start"):
         from .client_setup import prepare, start
 

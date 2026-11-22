@@ -13,6 +13,12 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from agent_relay.codex_responder import (
+    ResponderBridge,
+    native_command,
+    validate_config,
+    validate_thread,
+)
 from agent_relay.native_codex import OwnedCodexSession
 
 
@@ -42,14 +48,30 @@ requires_openai_auth = false
         if key in os.environ
     }
     env["CODEX_HOME"] = str(home)
+
+    class Relay:
+        role = "responder"
+
+    bridge = ResponderBridge(Relay())
+    schemas = await bridge.schemas()
     session = await OwnedCodexSession.start(
         root / "native",
         cwd=root,
         env=env,
-        command=(sandbox, "-f", str(profile), codex),
-        thread_options={"model": "no-inference", "modelProvider": "peerrelay_probe"},
+        command=(sandbox, "-f", str(profile), *native_command(codex)),
+        experimental=True,
+        validate_config=validate_config,
+        tool_handler=bridge.handle,
+        thread_options={
+            "model": "no-inference",
+            "modelProvider": "peerrelay_probe",
+            "approvalPolicy": "never",
+            "sandbox": "read-only",
+            "dynamicTools": schemas,
+        },
     )
     try:
+        validate_thread(session.start_result)
         thread = (
             await session.rpc.call(
                 "thread/read", {"threadId": session.thread_id, "includeTurns": True}
@@ -62,6 +84,8 @@ requires_openai_auth = false
             "exact_thread_resumable": True,
             "thread_status": "idle",
             "model_turns": 0,
+            "responder_tools_registered": len(schemas),
+            "native_restrictions_validated": True,
             "tui_argv_uses_exact_thread": session.thread_id in session.resume_argv(),
         }
     finally:

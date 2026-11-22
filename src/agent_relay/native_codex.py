@@ -1,8 +1,8 @@
 """Owned Codex app-server lifecycle; never attaches to an existing desktop chat.
 
 The transport defaults to metadata-only operations. Enabling turns is an explicit
-integration choice; native tool isolation and approval/UI ownership still require
-acceptance before a production launcher uses it.
+integration choice. The dedicated launcher applies restriction checks; complete
+local-read isolation and live native/TUI behavior are not established by this transport.
 """
 
 import asyncio
@@ -23,19 +23,29 @@ class RPCError(RuntimeError):
 
 
 class NativeRPC:
-    METHODS = {"initialize", "thread/start", "thread/resume", "thread/read", "thread/name/set"}
+    METHODS = {
+        "initialize",
+        "thread/start",
+        "thread/resume",
+        "thread/read",
+        "thread/name/set",
+        "config/read",
+    }
     NOTIFICATIONS = {"thread/status/changed", "turn/started", "turn/completed"}
 
-    def __init__(self, wire, *, timeout=10, allow_turns=False):
+    def __init__(self, wire, *, timeout=10, allow_turns=False, tool_handler=None):
         self.wire, self.timeout, self.allow_turns = wire, timeout, allow_turns
         self.serial, self.pending = 0, {}
         self.notifications = asyncio.Queue(maxsize=256)
         self.closed = asyncio.Event()
         self.failure = None
+        self.tool_handler, self.requests = tool_handler, {}
         self.reader = asyncio.create_task(self._read())
 
     @classmethod
-    async def connect(cls, path, *, timeout=10, allow_turns=False):
+    async def connect(
+        cls, path, *, timeout=10, allow_turns=False, experimental=False, tool_handler=None
+    ):
         wire = await unix_connect(
             path=str(path),
             uri="ws://localhost",
@@ -43,17 +53,25 @@ class NativeRPC:
             close_timeout=1,
             max_size=4 * 1024 * 1024,
         )
-        return await cls.connect_wire(wire, timeout=timeout, allow_turns=allow_turns)
+        return await cls.connect_wire(
+            wire,
+            timeout=timeout,
+            allow_turns=allow_turns,
+            experimental=experimental,
+            tool_handler=tool_handler,
+        )
 
     @classmethod
-    async def connect_wire(cls, wire, *, timeout=10, allow_turns=False):
-        rpc = cls(wire, timeout=timeout, allow_turns=allow_turns)
+    async def connect_wire(
+        cls, wire, *, timeout=10, allow_turns=False, experimental=False, tool_handler=None
+    ):
+        rpc = cls(wire, timeout=timeout, allow_turns=allow_turns, tool_handler=tool_handler)
         try:
             await rpc.call(
                 "initialize",
                 {
                     "clientInfo": {"name": "peerrelay_owned_session", "version": "0.1.0"},
-                    "capabilities": {"experimentalApi": False},
+                    "capabilities": {"experimentalApi": experimental},
                 },
             )
             await wire.send(json.dumps({"method": "initialized"}))
@@ -67,6 +85,13 @@ class NativeRPC:
             while True:
                 message = json.loads(await self.wire.recv())
                 if "id" in message and "method" in message:
+                    if message["method"] == "item/tool/call" and self.tool_handler:
+                        ident = message["id"]
+                        if ident in self.requests or len(self.requests) >= 16:
+                            self.failure = "native_tool_request_conflict"
+                            return
+                        self.requests[ident] = asyncio.create_task(self._tool_request(message))
+                        continue
                     # Do not guess approval ownership or answer a native request on
                     # the human's behalf. The next integration must route to the UI.
                     self.failure = "native_request_requires_ui"
@@ -92,6 +117,18 @@ class NativeRPC:
                     future.set_exception(ConnectionError(self.failure or "native_closed"))
             await self.wire.close()
 
+    async def _tool_request(self, message):
+        try:
+            result = await self.tool_handler(message["params"])
+            await self.wire.send(json.dumps({"id": message["id"], "result": result}))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.failure = "native_tool_bridge_failed"
+            self.reader.cancel()
+        finally:
+            self.requests.pop(message["id"], None)
+
     async def call(self, method, params):
         if method not in self.METHODS and not (method == "turn/start" and self.allow_turns):
             raise ValueError("Native operation disabled for this connection")
@@ -113,6 +150,10 @@ class NativeRPC:
     async def close(self):
         self.reader.cancel()
         await asyncio.gather(self.reader, return_exceptions=True)
+        jobs = list(self.requests.values())
+        for job in jobs:
+            job.cancel()
+        await asyncio.gather(*jobs, return_exceptions=True)
         await self.wire.close()
 
 
@@ -153,6 +194,9 @@ class OwnedCodexSession:
         thread_options=None,
         timeout=10,
         allow_turns=False,
+        experimental=False,
+        tool_handler=None,
+        validate_config=None,
     ):
         directory, cwd = Path(directory).absolute(), Path(cwd).resolve(strict=True)
         thread_options = dict(thread_options or {})
@@ -188,11 +232,21 @@ class OwnedCodexSession:
                 st = session.socket.lstat()
                 session.socket_identity = (st.st_dev, st.st_ino)
                 session.rpc = await NativeRPC.connect(
-                    session.socket, timeout=timeout, allow_turns=allow_turns
+                    session.socket,
+                    timeout=timeout,
+                    allow_turns=allow_turns,
+                    **(
+                        {"experimental": experimental, "tool_handler": tool_handler}
+                        if experimental or tool_handler
+                        else {}
+                    ),
                 )
+                if validate_config:
+                    validate_config((await session.rpc.call("config/read", {}))["config"])
                 options = {"cwd": str(cwd), "approvalPolicy": "on-request", "sandbox": "read-only"}
                 options.update(thread_options or {})
                 result = await session.rpc.call("thread/start", options)
+                session.start_result = result
                 session.thread_id = identifier(result["thread"]["id"])
                 # A fresh no-turn thread may not have a rollout until metadata is written.
                 await session.rpc.call(
