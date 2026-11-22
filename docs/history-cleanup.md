@@ -1,14 +1,15 @@
 # Clean main and existing clones
 
 `main` contains the tested follow-through, security and container execution changes.
-The spoken-code pairing PR is kept separate until its integration and acceptance
-tests pass. The publishing connector and heartbeat recovery improvements are also
+The spoken-code pairing PR remains separate for two-laptop acceptance, with its
+automated integration checks on the cleaned history. The publishing connector and heartbeat recovery improvements are also
 separate work.
 
-The new `main` branch has sanitized ancestry without unrelated application references
-or personal filesystem paths. Existing published feature branches still retain their
-old history; rewriting those branches and PR ancestry requires separate explicit
-approval. Required copyright and source attribution remain in
+The published `main` and `feat/spoken-code-pairing` branches have sanitized ancestry
+without unrelated application references or personal filesystem paths. The obsolete
+`codex/requester-response` and `codex/follow-security` branches were removed with the
+maintainer's approval. PR #1 targets `main` and remains unmerged. Required copyright
+and source attribution remain in
 `LICENSE` and `NOTICE`. The pairing PR's ordinary English code-word vocabulary is
 not a project reference.
 

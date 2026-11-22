@@ -11,11 +11,12 @@ tests skipped and one upstream Starlette/httpx warning. Ruff lint/format and Git
 whitespace checks pass. The previous seven real Podman acceptance tests are recorded
 below; they were not rerun as part of this naming cleanup.
 
-The preparation scan examines every commit reachable from all four cleaned branch
-candidates, including PR #1's branch. Only the new `main` branch is published;
-replacing existing public branch histories remains pending explicit approval. It permits required attribution files and the
-pairing code's ordinary English word list, and rejects unrelated project references
-and personal paths elsewhere. See [clone migration](history-cleanup.md).
+The history scan examines every commit reachable from the cleaned branch candidates,
+including PR #1's branch. Following maintainer approval, the updated pairing branch
+also uses cleaned ancestry and the two superseded branches were removed. The scan
+permits required attribution files and the pairing code's ordinary English word list,
+and rejects unrelated project references and personal paths elsewhere.
+See [clone migration](history-cleanup.md).
 
 ---
 
