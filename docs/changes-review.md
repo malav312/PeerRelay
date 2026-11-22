@@ -26,7 +26,8 @@ have ended, captures the second snapshot and freezes the result. Edits already
 present when the task starts are the baseline, including uncommitted and untracked
 files. Created and deleted files count, renames appear as deletion plus creation,
 and text-file permission changes are indicated. Later filesystem edits cannot
-change the frozen patch.
+change the frozen patch. Non-UTF-8 filename bytes display as literal escapes in the
+HTML page; the stored path identity remains unchanged.
 
 The scope is **changes during the task**, not proof that Bob authored every edit.
 Concurrent changes by the user or another program can appear. Traversal is bounded,
@@ -77,9 +78,9 @@ link expiration, shutdown and rejected writes. The browser page has also been
 visually checked with a synthetic modified/created/binary example, including an
 expanded file.
 
-Native consumer simulations for the revised requester instructions are pending
-root review. Native Codex/Claude acceptance and model token measurements are still
-pending. This implementation does not inject the native Edited files card, use MCP
+Reviewer consumer simulations passed the review-link, explicit-analysis and issue
+reporting cases. Native Codex/Claude acceptance and model token measurements are
+still pending. This implementation does not inject the native Edited files card, use MCP
 Apps, or change the MCP protocol version. It does not automatically open a browser
 or guarantee a host renders loopback links. If MCP runs on a different machine from
 the user's browser, the loopback link is not directly reachable there. A client

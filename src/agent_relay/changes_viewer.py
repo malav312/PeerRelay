@@ -137,7 +137,9 @@ class ChangesViewer:
                         self.reply(200, page)
 
                     def reply(self, status, page):
-                        data = page.encode("utf-8")
+                        # POSIX paths may contain surrogateescaped bytes. Display
+                        # those as literal escapes; keep stored path identities intact.
+                        data = page.encode("utf-8", errors="backslashreplace")
                         self.send_response(status)
                         self.send_header("Content-Type", "text/html; charset=utf-8")
                         self.send_header("Content-Length", str(len(data)))

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from urllib.request import Request, urlopen
 
 import pytest
@@ -22,7 +23,7 @@ class LocalClient:
 
 
 @pytest.fixture
-def finished(tmp_path):
+def finished(tmp_path, request):
     root = tmp_path / "project"
     root.mkdir()
     relay = Relay(root, tmp_path / "state", grant="exec")
@@ -39,6 +40,8 @@ def finished(tmp_path):
     )["task_id"]
     relay.call("responder", "claim", {"lease_id": lease})
     (root / "new.txt").write_text("<script>alert('diff sentinel')</script>\n")
+    for name in getattr(request, "param", []):
+        (root / name).write_text("filename preview sentinel\n")
     finish(relay, lease, task)
     client = LocalClient(relay)
     server = build_server(client)
@@ -119,3 +122,29 @@ def test_browser_cannot_apply_or_write(finished):
     with pytest.raises(Exception) as error:
         urlopen(Request(url, method="POST", data=b"undo"))
     assert error.value.code == 501
+
+
+@pytest.mark.parametrize("finished", [["résumé-多字.txt"]], indirect=True)
+def test_browser_displays_non_utf8_filename_without_changing_artifact_identity(finished):
+    relay, _, server, mode, task = finished
+    before = relay.call("requester", "changes", {"mode_id": mode, "task_id": task})
+    # APFS refuses raw-byte filenames. Reproduce the persisted artifact a POSIX
+    # filesystem supporting b"bad\xff.txt" produces, then use real relay reads/HTTP.
+    raw_name = os.fsdecode(b"bad\xff.txt")
+    item = next(item for item in before["files"] if item["path"] == "new.txt")
+    item["path"] = raw_name
+    item["diff"] = item["diff"].replace("new.txt", raw_name)
+    relay.db.execute("UPDATE task_changes SET artifact=? WHERE task=?", (json.dumps(before), task))
+    relay.db.commit()
+    stored = relay.call("requester", "changes", {"mode_id": mode, "task_id": task})
+    assert stored == before
+    paths = {item["path"] for item in stored["files"]}
+    assert raw_name in paths and "résumé-多字.txt" in paths
+    url = invoke(server, "view_changes", mode, task)["changes"]["view_url"]
+    with urlopen(url) as response:
+        assert response.status == 200
+        page = response.read().decode("utf-8")
+    assert "bad\\udcff.txt" in page
+    assert "résumé-多字.txt" in page
+    assert "+filename preview sentinel" in page
+    assert relay.call("requester", "changes", {"mode_id": mode, "task_id": task}) == before
